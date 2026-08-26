@@ -1,0 +1,57 @@
+# ==============================================================================
+# Precision Musumali Gold (XAUUSD) Trading Bot Configuration
+# High Win-Rate Institutional Strategy (M15 & M30) with Trend Confluence & Profit Lock
+# ==============================================================================
+
+symbols:
+  candidates:
+    - "XAUUSDm"    # Exness Standard account suffix
+    - "XAUUSD"
+    - "XAUUSD_i"   # Exness Raw/Zero account suffix
+    - "XAUUSDz"
+    - "GOLD"
+
+# ==============================================================================
+# STRATEGY: High-Conviction Musumali Liquidity Sweeps (M15, M30, H1)
+# ==============================================================================
+musumali_strategy:
+  enabled: true
+  magic_number: 999888
+  timeframes: ["M15", "M30", "H1"] # Clean institutional timeframes (filters 1-min noise)
+  cluster_search_bars: 30
+  wick_rejection_ratio: 1.20       # Strict rejection requirement
+  min_rejection_wick_pct: 0.25     # Minimum 25% wick rejection
+  risk_reward_ratio: 2.0
+  target_profit_dollars: 2.50      # Target +$2.50 profit per 0.01 lot
+  max_loss_dollars: 1.20           # $1.20 SL (gives breathing room past spread and noise)
+
+# ==============================================================================
+# 1-MINUTE NOISE FILTER (Disabled to eliminate random whipsaws)
+# ==============================================================================
+m1_scalper:
+  enabled: false                   # Disabled: Eliminates noisy 1-minute false breakouts
+
+# ==============================================================================
+# HARMONY & RISK CONTROL
+# ==============================================================================
+harmony_rules:
+  prevent_opposing_trades: true    # Zero conflicting positions
+  total_max_open_positions: 2      # Max 2 concurrent positions (0.01 lot each)
+  max_musumali_positions: 2
+  cooldown_seconds_per_trade: 10   # 10s cooldown
+
+risk_management:
+  lot_mode: "fixed"
+  fixed_lot_size: 0.01             # Micro lots for account protection
+  max_daily_trades: 50
+  max_spread_points: 400
+  slippage_points: 25
+
+circuit_breakers:
+  max_daily_drawdown_percent: 90.0
+  max_daily_profit_percent: 100.0
+
+system:
+  poll_interval_seconds: 2
+  heartbeat_interval_seconds: 60
+  log_level: "INFO"
