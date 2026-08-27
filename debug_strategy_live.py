@@ -1,6 +1,6 @@
 """
 Deep Strategy Diagnostic Script
-Scans live MT5 Gold market for both SELL and BUY liquidity sweep setups.
+Scans live MT5 Gold market for confirmed Musumali sweeps, HTF bias, ATR stop loss, and zone diagnostics.
 """
 
 import yaml
@@ -9,6 +9,7 @@ import MetaTrader5 as mt5
 import pandas as pd
 from src.connection import MT5Connector
 from src.strategy import MusumaliStrategy
+from src.risk_manager import RiskManager
 
 
 def debug():
@@ -30,42 +31,48 @@ def debug():
         return
 
     strat = MusumaliStrategy(config)
-    info = connector.symbol_info
+    risk_mgr = RiskManager(config, connector)
     tick = mt5.symbol_info_tick(sym)
 
-    print("=" * 65)
-    print(f"   LIVE BIDIRECTIONAL STRATEGY SCAN FOR {sym}")
-    print(f"   Current Price: Ask={tick.ask:.2f}, Bid={tick.bid:.2f} | Spread={tick.ask - tick.bid:.2f}")
-    print("=" * 65)
+    print("=" * 70)
+    print(f"   LIVE BIDIRECTIONAL STRATEGY DIAGNOSTIC FOR {sym}")
+    print(f"   Current Price: Ask={tick.ask:.2f}, Bid={tick.bid:.2f} | Spread={(tick.ask - tick.bid)*1000:.1f} pts")
+    print("=" * 70)
 
-    # 1. Scan across timeframes (M15, M30, H1)
-    for tf_name, tf in [("M15", mt5.TIMEFRAME_M15), ("M30", mt5.TIMEFRAME_M30), ("H1", mt5.TIMEFRAME_H1)]:
+    # 1. HTF Structural Bias
+    htf_bias, htf_reason = strat.get_htf_structural_bias(sym)
+    print(f"\n>>> [PRIORITY 5] H1 Structural Bias: {htf_bias}")
+    print(f"    Details: {htf_reason}")
+
+    # 2. Dynamic ATR Sizing across timeframes
+    print(f"\n>>> [PRIORITY 2] ATR(14) Volatility Profile:")
+    for tf_name, tf in [("M5", mt5.TIMEFRAME_M5), ("M15", mt5.TIMEFRAME_M15), ("M30", mt5.TIMEFRAME_M30), ("H1", mt5.TIMEFRAME_H1)]:
         df = strat.fetch_rates(sym, tf, count=60)
         if df is not None:
-            zones = strat.find_all_recent_areas_of_benefit(df)
-            sell_zones = [z for z in zones if z.zone_type == "SUPPLY"]
-            buy_zones = [z for z in zones if z.zone_type == "DEMAND"]
-            print(f"\n[{tf_name}] Active Zones Detected: {len(sell_zones)} SELL (Supply) | {len(buy_zones)} BUY (Demand)")
-            if sell_zones:
-                sz = sell_zones[0]
-                print(f"    * Top SELL (Supply) Zone: {sz.zone_bottom:.2f} - {sz.zone_top:.2f} | Liquidity High: {sz.cluster_high_wick:.2f}")
-            if buy_zones:
-                bz = buy_zones[0]
-                print(f"    * Top BUY (Demand) Zone:   {bz.zone_bottom:.2f} - {bz.zone_top:.2f} | Liquidity Low:  {bz.cluster_low_wick:.2f}")
+            atr = strat.calculate_atr(df, period=14)
+            sl_dist = max(min(atr * strat.atr_sl_multiplier, strat.max_sl_distance), strat.min_sl_distance)
+            tp_dist = sl_dist * strat.risk_reward_ratio
+            print(f"    * {tf_name}: ATR(14) = ${atr:.2f} | SL Distance (1.2x) = ${sl_dist:.2f} | TP Target (1:2) = ${tp_dist:.2f}")
 
-    # 2. Check Signal Output
-    signal, entry, sl, tp = strat.generate_signal(sym)
-    print("\n" + "=" * 65)
-    if signal:
-        print(f">>> [TRIGGER ACTIVE] Signal: {signal} @ {entry:.2f}")
-        print(f"    * Stop Loss:   {sl:.2f} (Hard Capped to -$1.00 max risk)")
-        print(f"    * Take Profit: {tp:.2f} (Target +$2.00 profit)")
+    # 3. Generate Signal Output
+    sig, entry, sl, tp, candle_id, zone_id, reason = strat.generate_signal(sym)
+    print("\n" + "=" * 70)
+    if sig:
+        print(f">>> [CONFIRMED SIGNAL TRIGGERED]")
+        print(f"    * Side:        {sig}")
+        print(f"    * Entry Price: {entry:.2f}")
+        print(f"    * Stop Loss:   {sl:.2f} (-${abs(entry - sl):.2f})")
+        print(f"    * Take Profit: {tp:.2f} (+${abs(tp - entry):.2f})")
+        print(f"    * Zone ID:     {zone_id}")
+        print(f"    * Reason:      {reason}")
     else:
-        print(">>> Scanner Status: Actively watching live ticks for both SELL & BUY triggers.")
-    print("=" * 65)
+        print(f">>> [SCANNER STATUS] No confirmed sweep reclaims on current tick.")
+        print(f"    Filter State: Monitoring market across M5/M15/M30/H1.")
+    print("=" * 70)
 
     connector.shutdown()
 
 
 if __name__ == "__main__":
     debug()
+

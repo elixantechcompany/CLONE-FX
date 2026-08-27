@@ -1,6 +1,6 @@
 # ==============================================================================
 # Precision Musumali Gold (XAUUSD) Trading Bot Configuration
-# High Win-Rate Institutional Strategy (M15 & M30) with Trend Confluence & Profit Lock
+# Micro-Account Edition ($10 - $25 Balance Shield)
 # ==============================================================================
 
 symbols:
@@ -12,46 +12,116 @@ symbols:
     - "GOLD"
 
 # ==============================================================================
-# STRATEGY: High-Conviction Musumali Liquidity Sweeps (M15, M30, H1)
+# ENGINE 1: Musumali Liquidity Sweeps (H1, H4) [Magic: 2001]
 # ==============================================================================
 musumali_strategy:
   enabled: true
-  magic_number: 999888
-  timeframes: ["M15", "M30", "H1"] # Clean institutional timeframes (filters 1-min noise)
-  cluster_search_bars: 30
-  wick_rejection_ratio: 1.20       # Strict rejection requirement
-  min_rejection_wick_pct: 0.25     # Minimum 25% wick rejection
-  risk_reward_ratio: 2.0
-  target_profit_dollars: 2.50      # Target +$2.50 profit per 0.01 lot
-  max_loss_dollars: 1.20           # $1.20 SL (gives breathing room past spread and noise)
+  signal_only_mode: false          # Live Order Execution enabled on H1 & H4
+  magic_number: 2001               # Fix 10: Unique Magic Number for Musumali_Sweep
+  timeframes: ["H1", "H4"]         # Fix 8: Strict Higher Timeframe isolation (H1 & H4 only)
+  cluster_search_bars: 15
+  min_rejection_wick_pct: 0.15     # 15% wick rejection
+  risk_reward_ratio: 2.0           # 1:2 Risk to Reward Target
+  
+  # Fix 21: ATR-Scaled Dynamic Stop Loss (1.5x ATR)
+  atr_period: 14                   # 14-period ATR on execution timeframe (H1/H4)
+  atr_sl_multiplier: 1.5           # 1.5x ATR stop-loss distance
+  min_sl_distance_dollars: 2.00    # Floor to prevent micro-spread compression
+  max_sl_distance_dollars: 15.00   # Volatility ceiling
+
+  # Higher-Timeframe Bias
+  htf_timeframe: "D1"
+  require_htf_alignment: true
+  htf_fast_ema: 20
+  htf_slow_ema: 50
+  htf_trend_ema: 200
 
 # ==============================================================================
-# 1-MINUTE NOISE FILTER (Disabled to eliminate random whipsaws)
+# LIQUIDITY ZONE COOLDOWN
+# ==============================================================================
+zone_management:
+  zone_band_points: 5.0
+  max_zone_failures: 2
+  zone_cooldown_minutes: 10
+
+# ==============================================================================
+# ENGINE 2: 1-MINUTE MICRO-SCALPER [Magic: 1001]
 # ==============================================================================
 m1_scalper:
-  enabled: false                   # Disabled: Eliminates noisy 1-minute false breakouts
+  enabled: true
+  bidirectional: true              # Take both BUY and SELL micro-pullback breakouts on M1
+  require_daily_trend_alignment: false # Decoupled from macro Daily gate
+  trend_filter_enabled: true       # Fix 16: Lightweight M15 trend filter
+  trend_timeframe: "M15"           # Check M15 EMA20 trend context
+  trend_ema_period: 20
+  trend_slope_bars: 3
+  magic_number: 1001               # Fix 10: Unique Magic Number for M1_Scalp
+  timeframes: ["M1"]               # Scalper strictly operates on M1
+  max_concurrent_scalp: 3
+  fast_ema: 7
+  slow_ema: 16
+  sweep_lookback_bars: 8
+  
+  # Fix 21: ATR-Scaled Dynamic Stop Loss on M1
+  atr_period: 14                   # 14-period ATR on M1
+  atr_sl_multiplier: 1.5           # 1.5x ATR stop-loss distance
+  risk_reward_ratio: 2.0           # 1:2 R:R target (3.0x ATR take-profit)
+  min_sl_dollars: 1.20             # Floor to cover Gold spread noise
+  max_loss_dollars: 6.00           # Scalp volatility ceiling
 
 # ==============================================================================
-# HARMONY & RISK CONTROL
+# DYNAMIC PROFIT MANAGEMENT & RETRACEMENT PROTECTION (UNIFIED)
+# ==============================================================================
+profit_management:
+  # Tier 0: Hard Emergency Loss Shield
+  max_hard_loss_per_trade_dollars: 2.50 # Dynamic SL handles risk; hard shield cuts at -$2.50
+  max_account_floating_drawdown_dollars: 3.00 # Account-Wide Circuit Breaker: Auto-cuts if total floating loss hits -$3.00
+  
+  # Tier 1: Profit Lock starting from $0.50 and above
+  lock_profit_start_dollars: 0.50      # Lock in profits starting from $0.50
+  breakeven_lock_offset: 0.25          # Lock +$0.25 guaranteed profit (covers 260pt spread)
+  
+  # Tier 2: Rollback Protection starting from $1.00 and above
+  rollback_close_trigger_dollars: 1.00 # Active when trade reaches $1.00 or higher
+  rollback_retrace_tolerance_dollars: 0.25 # Max allowable dollar reduction from peak
+  rollback_giveback_max_pct: 0.25      # Max 25% reduction from peak before checking continuation
+  
+  # Tier 3: Dynamic Trailing Stop from +0.8R
+  trailing_enabled: true
+  trailing_trigger_r: 0.8              # Start continuous trailing at +0.8R
+  trailing_distance_dollars: 0.80      # Gold ATR trailing buffer ($0.80)
+
+# ==============================================================================
+# HARMONY & RISK ALLOCATION SPLIT (FIX 11 & FIX 12)
 # ==============================================================================
 harmony_rules:
-  prevent_opposing_trades: true    # Zero conflicting positions
-  total_max_open_positions: 2      # Max 2 concurrent positions (0.01 lot each)
-  max_musumali_positions: 2
-  cooldown_seconds_per_trade: 10   # 10s cooldown
+  prevent_opposing_trades: false   # Fix 11: Net exposure logging active, optional hard block
+  max_opposing_lot_exposure: 0.05  # Fix 11: Cap max opposing lot exposure
+  total_max_open_positions: 1      # Micro-Account Protection: Max 1 trade at a time to prevent stacking
+  max_musumali_positions: 1        # Max 1 Musumali trade
+  max_scalper_positions: 1         # Max 1 Scalper trade
+  cooldown_seconds_per_trade: 0    # Fix 5: Continuous 24/5 candle scanning
 
 risk_management:
-  lot_mode: "fixed"
-  fixed_lot_size: 0.01             # Micro lots for account protection
+  lot_mode: "fixed"                # Fixed micro lots for safety
+  risk_per_trade_percent: 1.5      # Base 1.5% risk per trade
+  max_total_account_risk_percent: 6.0 # Total portfolio shared risk ceiling
+  fixed_lot_size: 0.01             # Base micro lot
   max_daily_trades: 50
-  max_spread_points: 400
+  max_spread_points: 350
   slippage_points: 25
 
+# ==============================================================================
+# CIRCUIT BREAKERS (FIX 17)
+# ==============================================================================
 circuit_breakers:
-  max_daily_drawdown_percent: 90.0
-  max_daily_profit_percent: 100.0
+  max_daily_drawdown_percent: 50.0 # Halt if daily loss exceeds 50% ($5.00 on $10 account)
+  max_daily_profit_percent: 100.0  # Daily target 100%
+  max_consecutive_losses: 3        # Fix 17: Pause module after 3 consecutive losses
+  consecutive_loss_window_minutes: 30 # Fix 17: Window to detect clustered losses
+  circuit_breaker_cooldown_minutes: 20 # Fix 17: Cooldown duration before re-enabling entries
 
 system:
-  poll_interval_seconds: 2
+  poll_interval_seconds: 1
   heartbeat_interval_seconds: 60
   log_level: "INFO"

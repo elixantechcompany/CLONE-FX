@@ -36,42 +36,31 @@ def scan_live():
     tick = mt5.symbol_info_tick(sym)
 
     print(f"\n[1] Current Market Price for {sym}:")
-    print(f"    * Bid: {tick.bid:.2f} | Ask: {tick.ask:.2f} | Spread: {tick.ask - tick.bid:.2f}")
+    print(f"    * Bid: {tick.bid:.2f} | Ask: {tick.ask:.2f} | Spread: {(tick.ask - tick.bid)*1000:.1f} pts")
 
-    print(f"\n[2] Component 1: Higher Timeframe Bias ({strategy.trend_tf_str}):")
-    trend = strategy.get_market_trend_bias(sym)
+    print(f"\n[2] Component 1: Daily Higher-Timeframe Trend Gate (D1):")
+    trend, trend_reason = strategy.get_daily_market_trend(sym)
     print(f"    * Evaluated Daily Bias: {trend}")
+    print(f"    * Reason: {trend_reason}")
     if trend == "RANGING":
         print("    -> Market is currently ranging/consolidating on Daily.")
-        print("       Strategy Rule: Filter active (No trade to protect capital from whipsaws).")
+        print("       Strategy Rule: Hard Gate Active (NO TRADES permitted to protect capital).")
     elif trend in ("UPTREND", "DOWNTREND"):
-        print(f"    -> Trend is {trend}. Looking only for {'BUY' if trend == 'UPTREND' else 'SELL'} setups.")
+        print(f"    -> Trend is {trend}. Looking ONLY for {'BUY' if trend == 'UPTREND' else 'SELL'} setups.")
 
-    print(f"\n[3] Component 2 & 3: Area of Benefit & Liquidity Sweep ({strategy.exec_tf_str}):")
-    df_h1 = strategy.fetch_rates(sym, strategy.exec_mt5_tf, count=100)
-    if df_h1 is not None and len(df_h1) > 0:
-        zone = strategy.find_area_of_benefit(df_h1, trend)
-        if zone:
-            print(f"    * Area of Benefit Zone: {zone.zone_bottom:.2f} - {zone.zone_top:.2f}")
-            print(f"    * Liquidity Peak Wick:  {zone.cluster_low_wick:.2f} (Low) / {zone.cluster_high_wick:.2f} (High)")
-            
-            # Check sweep
-            info = connector.symbol_info
-            idx, musumali_candle = strategy.evaluate_musumali_candle(df_h1, zone, trend, info.point)
-            if musumali_candle is not None:
-                print(f"    * Musumali Signal Candle: [DETECTED] at {musumali_candle['time']}")
-                print(f"      High: {musumali_candle['high']:.2f}, Low: {musumali_candle['low']:.2f}")
-            else:
-                print("    * Musumali Signal Candle: [WAITING] Price has not swept liquidity and rejected yet.")
-        else:
-            print("    * No qualifying reaction cluster currently within range.")
-
-    print("\n[4] Signal Check:")
-    signal, entry, sl, tp = strategy.generate_signal(sym)
+    print(f"\n[3] Component 2, 3 & 4: Multi-Timeframe Scan & Signal Check:")
+    signal, entry, sl, tp, candle_id, zone_id, reason = strategy.generate_signal(sym)
     if signal:
         print(f"    >>> ACTIVE SIGNAL: {signal} @ {entry:.2f} | SL: {sl:.2f} | TP: {tp:.2f}")
+        print(f"        Setup Reason: {reason}")
     else:
-        print("    >>> Status: STANDBY / MONITORING (Bot is actively waiting for a valid setup to trigger).")
+        print(f"    >>> Status: STANDBY / MONITORING ({reason})")
+
+    print(f"\n[4] Component 5: 4-Stage Entry Filter Funnel Audit:")
+    print(f"    - Zones (Area of Benefit) identified: {strategy.funnel.zones_identified}")
+    print(f"    - Zones that got a liquidity sweep: {strategy.funnel.zones_swept}")
+    print(f"    - Sweeps that produced a valid Musumali candle: {strategy.funnel.valid_musumali_candles}")
+    print(f"    - Musumali candles that got a confirmed break (entry): {strategy.funnel.confirmed_break_entries}")
 
     print("\n" + "=" * 65)
     connector.shutdown()
@@ -79,3 +68,4 @@ def scan_live():
 
 if __name__ == "__main__":
     scan_live()
+

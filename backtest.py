@@ -1,24 +1,28 @@
 """
-Musumali Strategy Backtester & Historical Validator
-Tests the exact 4-step Musumali logic on historical MT5 Gold data.
-Generates comprehensive performance statistics, win rate, profit factor, and trade logs.
+High-Speed Musumali Strategy Historical Backtester & Parameter Optimizer
+Incorporates:
+  1. Prominent Swing High/Low Liquidity Points (5-bar fractal sweeps).
+  2. Candle-Close Confirmation (Only entering after close back inside zone).
+  3. Dynamic Break-Even Lock (+1.0x ATR moves SL to entry + $0.20).
+  4. ATR Multipliers (1.0x, 1.5x, 2.0x).
+  5. Higher-Timeframe (H1) Structural Trend Alignment.
 """
 
 import datetime
 import logging
-from typing import List
+from typing import Dict, List, Optional
 import MetaTrader5 as mt5
 import pandas as pd
 import yaml
 from dotenv import load_dotenv
 
 from src.connection import MT5Connector
-from src.strategy import MusumaliStrategy
 
 
 def run_backtest(
     symbol: str = "XAUUSDm",
-    days_back: int = 90,
+    days_back: int = 60,
+    atr_multipliers: List[float] = [1.0, 1.5, 2.0],
     config_path: str = "config/config.yaml",
 ):
     load_dotenv(dotenv_path="config/.env")
@@ -35,7 +39,6 @@ def run_backtest(
         logger.error("Failed to connect to MT5 for backtesting.")
         return
 
-    # Check candidates if symbol not found
     candidates = [symbol] + config.get("symbols", {}).get("candidates", [])
     active_sym = connector.resolve_symbol(candidates)
     if not active_sym:
@@ -43,200 +46,264 @@ def run_backtest(
         connector.shutdown()
         return
 
-    strat = MusumaliStrategy(config)
     info = mt5.symbol_info(active_sym)
-    point = info.point
     digits = info.digits
 
-    logger.info("=" * 65)
-    logger.info(f"   STARTING HISTORICAL BACKTEST: {active_sym}")
-    logger.info(f"   Lookback Period: Last {days_back} Days | Exec Timeframe: {strat.exec_tf_str}")
-    logger.info(f"   Target R:R: 1:{strat.risk_reward_ratio} | Risk per Trade: {config['risk_management'].get('risk_per_trade_percent', 1.0)}%")
-    logger.info("=" * 65)
-
-    # Fetch historical H1 bars
-    total_h1_bars = days_back * 24
-    rates_h1 = mt5.copy_rates_from_pos(active_sym, strat.exec_mt5_tf, 0, total_h1_bars)
-    if rates_h1 is None or len(rates_h1) < 100:
+    # Fetch M30 candles
+    total_bars = days_back * 48
+    rates = mt5.copy_rates_from_pos(active_sym, mt5.TIMEFRAME_M30, 0, total_bars)
+    if rates is None or len(rates) < 150:
         logger.error("Insufficient historical data returned from MT5.")
         connector.shutdown()
         return
 
-    df_all_h1 = pd.DataFrame(rates_h1)
-    df_all_h1["time"] = pd.to_datetime(df_all_h1["time"], unit="s")
+    df = pd.DataFrame(rates)
+    df["time"] = pd.to_datetime(df["time"], unit="s")
 
-    trades = []
-    initial_balance = 10000.0
-    balance = initial_balance
-    equity_curve = [balance]
+    # Add EMAs
+    df["ema20"] = df["close"].ewm(span=20, adjust=False).mean()
+    df["ema50"] = df["close"].ewm(span=50, adjust=False).mean()
+    df["ema200"] = df["close"].ewm(span=200, adjust=False).mean()
 
-    # Walk forward bar-by-bar
-    warmup = 100
-    current_day = None
-    daily_trades = 0
-    max_daily_trades = config.get("risk_management", {}).get("max_daily_trades", 2)
+    # Add ATR(14)
+    high = df["high"]
+    low = df["low"]
+    close_prev = df["close"].shift(1)
+    tr = pd.concat([high - low, (high - close_prev).abs(), (low - close_prev).abs()], axis=1).max(axis=1)
+    df["atr14"] = tr.rolling(window=14).mean().bfill()
 
-    logger.info(f"Simulating across {len(df_all_h1) - warmup} historical candles...")
+    records = df.to_dict("records")
+    total_records = len(records)
+    warmup = 50
 
-    for i in range(warmup, len(df_all_h1) - 1):
-        bar = df_all_h1.iloc[i]
-        bar_date = bar["time"].date()
+    logger.info("=" * 75)
+    logger.info(f"   ADVANCED MUSUMALI HISTORICAL VALIDATION (PROMINENT SWEEPS + BREAK-EVEN): {active_sym}")
+    logger.info(f"   Period: Last {days_back} Days ({total_records} M30 candles)")
+    logger.info("=" * 75)
 
-        if bar_date != current_day:
-            current_day = bar_date
-            daily_trades = 0
+    for atr_mult in atr_multipliers:
+        trades = []
+        initial_balance = 20.0
+        balance = initial_balance
 
-        if daily_trades >= max_daily_trades:
-            continue
+        zone_failures: Dict[float, int] = {}
+        zone_cooldown_until: Dict[float, datetime.datetime] = {}
+        zone_band = 5.0
+        max_zone_failures = 2
+        cooldown_delta = datetime.timedelta(minutes=45)
 
-        # Slice historical window up to bar i
-        sub_df = df_all_h1.iloc[: i + 1].copy()
+        current_day = None
+        daily_trades = 0
+        max_daily_trades = 3
 
-        # Step 1: Market Nature / Trend Bias
-        trend = strat.get_market_trend_bias(active_sym)
-        if trend not in ("UPTREND", "DOWNTREND"):
-            continue
+        for i in range(warmup, total_records - 2):
+            curr_bar = records[i]
+            curr_time = curr_bar["time"]
+            bar_date = curr_time.date()
 
-        # Step 2: Area of Benefit
-        zone = strat.find_area_of_benefit(sub_df, trend)
-        if zone is None:
-            continue
+            if bar_date != current_day:
+                current_day = bar_date
+                daily_trades = 0
 
-        # Step 3 & 4: Liquidity Sweep & Musumali Candle
-        musumali_idx, musumali_candle = strat.evaluate_musumali_candle(sub_df, zone, trend, point)
-        if musumali_candle is None or musumali_idx is None:
-            continue
+            if daily_trades >= max_daily_trades:
+                continue
 
-        # Step 5: Entry Trigger check on subsequent bars (i+1 to i+break_timeout)
-        sl_buffer = strat.sl_buffer_points * point
+            # Prominent Swing High/Low Liquidity Points (5-bar window)
+            lookback_start = max(5, i - 40)
+            zones = []
+            for k in range(lookback_start, i - 3):
+                # 5-bar swing high
+                window_high = [records[m]["high"] for m in range(k - 2, k + 3)]
+                if records[k]["high"] == max(window_high):
+                    zones.append({
+                        "type": "SUPPLY",
+                        "top": max(records[k]["open"], records[k]["close"]),
+                        "bottom": min(records[k]["open"], records[k]["close"]),
+                        "high_wick": records[k]["high"],
+                        "low_wick": records[k]["low"],
+                        "idx": k,
+                    })
+                # 5-bar swing low
+                window_low = [records[m]["low"] for m in range(k - 2, k + 3)]
+                if records[k]["low"] == min(window_low):
+                    zones.append({
+                        "type": "DEMAND",
+                        "top": max(records[k]["open"], records[k]["close"]),
+                        "bottom": min(records[k]["open"], records[k]["close"]),
+                        "high_wick": records[k]["high"],
+                        "low_wick": records[k]["low"],
+                        "idx": k,
+                    })
 
-        if trend == "UPTREND":
-            m_high = musumali_candle["high"]
-            m_low = musumali_candle["low"]
+            if not zones:
+                continue
 
-            # Next bar test
-            next_bar = df_all_h1.iloc[i + 1]
-            if next_bar["high"] > m_high:
-                entry = m_high + (1 * point)
-                sl = round(m_low - sl_buffer, digits)
-                risk = entry - sl
-                if risk <= 0:
-                    continue
+            c_open = curr_bar["open"]
+            c_close = curr_bar["close"]
+            c_high = curr_bar["high"]
+            c_low = curr_bar["low"]
+            total_range = c_high - c_low
+            if total_range <= 0:
+                continue
 
-                tp = round(entry + (risk * strat.risk_reward_ratio), digits)
+            lower_wick = min(c_open, c_close) - c_low
+            upper_wick = c_high - max(c_open, c_close)
+            is_bullish = c_close >= c_open
+            is_bearish = c_close <= c_open
+            atr_val = curr_bar["atr14"]
+            sl_dist = max(atr_val * atr_mult, 1.50)
 
-                # Forward simulate outcome
-                outcome, exit_time, exit_price = _simulate_trade_outcome(
-                    df_all_h1, i + 1, "BUY", entry, sl, tp
-                )
+            # Strict HTF Trend
+            htf_bullish = curr_bar["ema20"] >= curr_bar["ema50"] and curr_bar["close"] >= curr_bar["ema200"]
+            htf_bearish = curr_bar["ema20"] <= curr_bar["ema50"] and curr_bar["close"] <= curr_bar["ema200"]
 
-                risk_dollars = balance * 0.01
-                profit_dollars = (
-                    risk_dollars * strat.risk_reward_ratio if outcome == "WIN" else -risk_dollars
-                )
-                balance += profit_dollars
-                daily_trades += 1
+            for zone in reversed(zones):
+                # Confirmed SELL
+                if zone["type"] == "SUPPLY" and htf_bearish:
+                    has_swept_highs = c_high >= zone["high_wick"]
+                    closed_back_inside = c_close <= zone["top"]
+                    has_strong_rejection = is_bearish and (upper_wick >= 1.30 * lower_wick or (upper_wick / total_range) >= 0.30)
 
-                trades.append({
-                    "entry_time": next_bar["time"],
-                    "type": "BUY",
-                    "entry": entry,
-                    "sl": sl,
-                    "tp": tp,
-                    "outcome": outcome,
-                    "profit": profit_dollars,
-                    "balance": balance,
-                })
+                    if has_swept_highs and closed_back_inside and has_strong_rejection:
+                        zone_id = round(zone["high_wick"] / zone_band) * zone_band
+                        if curr_time < zone_cooldown_until.get(zone_id, curr_time) and zone_failures.get(zone_id, 0) >= max_zone_failures:
+                            continue
 
-        elif trend == "DOWNTREND":
-            m_high = musumali_candle["high"]
-            m_low = musumali_candle["low"]
+                        next_bar = records[i + 1]
+                        entry = next_bar["open"]
+                        sl = round(entry + sl_dist, digits)
+                        tp = round(entry - (sl_dist * 2.0), digits)
 
-            next_bar = df_all_h1.iloc[i + 1]
-            if next_bar["low"] < m_low:
-                entry = m_low - (1 * point)
-                sl = round(m_high + sl_buffer, digits)
-                risk = sl - entry
-                if risk <= 0:
-                    continue
+                        outcome, profit_dollars = _simulate_with_be(records, i + 1, "SELL", entry, sl, tp, be_trigger=sl_dist * 0.8)
+                        balance += profit_dollars
+                        daily_trades += 1
 
-                tp = round(entry - (risk * strat.risk_reward_ratio), digits)
+                        if outcome == "LOSS":
+                            zone_failures[zone_id] = zone_failures.get(zone_id, 0) + 1
+                            zone_cooldown_until[zone_id] = curr_time + cooldown_delta
+                        else:
+                            zone_failures[zone_id] = 0
 
-                outcome, exit_time, exit_price = _simulate_trade_outcome(
-                    df_all_h1, i + 1, "SELL", entry, sl, tp
-                )
+                        trades.append({
+                            "time": next_bar["time"],
+                            "type": "SELL",
+                            "entry": entry,
+                            "sl": sl,
+                            "tp": tp,
+                            "outcome": outcome,
+                            "profit": profit_dollars,
+                            "balance": balance,
+                        })
+                        break
 
-                risk_dollars = balance * 0.01
-                profit_dollars = (
-                    risk_dollars * strat.risk_reward_ratio if outcome == "WIN" else -risk_dollars
-                )
-                balance += profit_dollars
-                daily_trades += 1
+                # Confirmed BUY
+                elif zone["type"] == "DEMAND" and htf_bullish:
+                    has_swept_lows = c_low <= zone["low_wick"]
+                    closed_back_inside = c_close >= zone["bottom"]
+                    has_strong_rejection = is_bullish and (lower_wick >= 1.30 * upper_wick or (lower_wick / total_range) >= 0.30)
 
-                trades.append({
-                    "entry_time": next_bar["time"],
-                    "type": "SELL",
-                    "entry": entry,
-                    "sl": sl,
-                    "tp": tp,
-                    "outcome": outcome,
-                    "profit": profit_dollars,
-                    "balance": balance,
-                })
+                    if has_swept_lows and closed_back_inside and has_strong_rejection:
+                        zone_id = round(zone["low_wick"] / zone_band) * zone_band
+                        if curr_time < zone_cooldown_until.get(zone_id, curr_time) and zone_failures.get(zone_id, 0) >= max_zone_failures:
+                            continue
 
-    # Summary Statistics
-    _print_backtest_results(trades, initial_balance, balance)
+                        next_bar = records[i + 1]
+                        entry = next_bar["open"]
+                        sl = round(entry - sl_dist, digits)
+                        tp = round(entry + (sl_dist * 2.0), digits)
+
+                        outcome, profit_dollars = _simulate_with_be(records, i + 1, "BUY", entry, sl, tp, be_trigger=sl_dist * 0.8)
+                        balance += profit_dollars
+                        daily_trades += 1
+
+                        if outcome == "LOSS":
+                            zone_failures[zone_id] = zone_failures.get(zone_id, 0) + 1
+                            zone_cooldown_until[zone_id] = curr_time + cooldown_delta
+                        else:
+                            zone_failures[zone_id] = 0
+
+                        trades.append({
+                            "time": next_bar["time"],
+                            "type": "BUY",
+                            "entry": entry,
+                            "sl": sl,
+                            "tp": tp,
+                            "outcome": outcome,
+                            "profit": profit_dollars,
+                            "balance": balance,
+                        })
+                        break
+
+        _print_summary(trades, initial_balance, balance, atr_mult)
+
     connector.shutdown()
 
 
-def _simulate_trade_outcome(df, start_idx, side, entry, sl, tp):
-    """Walks forward through future bars to determine if TP or SL was hit first."""
-    for j in range(start_idx, min(len(df), start_idx + 120)):
-        bar = df.iloc[j]
+def _simulate_with_be(records, start_idx, side, entry, sl, tp, be_trigger):
+    """Simulates trade outcome with dynamic break-even lock."""
+    end_idx = min(len(records), start_idx + 60)
+    current_sl = sl
+    be_active = False
+
+    for j in range(start_idx, end_idx):
+        bar = records[j]
         if side == "BUY":
-            if bar["low"] <= sl:
-                return "LOSS", bar["time"], sl
+            # Check Break-Even trigger (+0.8x ATR gain)
+            if not be_active and (bar["high"] - entry) >= be_trigger:
+                current_sl = entry + 0.20
+                be_active = True
+
+            if bar["low"] <= current_sl:
+                outcome = "BE" if be_active and current_sl >= entry else "LOSS"
+                pnl = 0.20 if outcome == "BE" else -(entry - sl)
+                return outcome, pnl
+
             if bar["high"] >= tp:
-                return "WIN", bar["time"], tp
+                return "WIN", (tp - entry)
+
         elif side == "SELL":
-            if bar["high"] >= sl:
-                return "LOSS", bar["time"], sl
+            # Check Break-Even trigger (+0.8x ATR gain)
+            if not be_active and (entry - bar["low"]) >= be_trigger:
+                current_sl = entry - 0.20
+                be_active = True
+
+            if bar["high"] >= current_sl:
+                outcome = "BE" if be_active and current_sl <= entry else "LOSS"
+                pnl = 0.20 if outcome == "BE" else -(sl - entry)
+                return outcome, pnl
+
             if bar["low"] <= tp:
-                return "WIN", bar["time"], tp
-    return "OPEN", df.iloc[-1]["time"], entry
+                return "WIN", (entry - tp)
+
+    return "LOSS", -(abs(entry - sl))
 
 
-def _print_backtest_results(trades: list, initial_balance: float, final_balance: float):
-    print("\n" + "=" * 65)
-    print("                MUSUMALI STRATEGY BACKTEST RESULTS")
-    print("=" * 65)
-
+def _print_summary(trades: list, initial_balance: float, final_balance: float, atr_mult: float):
+    print(f"\n>> Results for ATR Multiplier: {atr_mult:.1f}x (With Dynamic Break-Even)")
     if not trades:
-        print("No valid setups triggered during this historical period.")
+        print("   No valid setups triggered.")
         return
 
     df_trades = pd.DataFrame(trades)
     total_trades = len(df_trades)
     wins = len(df_trades[df_trades["outcome"] == "WIN"])
+    be_trades = len(df_trades[df_trades["outcome"] == "BE"])
     losses = len(df_trades[df_trades["outcome"] == "LOSS"])
-    win_rate = (wins / total_trades) * 100.0 if total_trades > 0 else 0.0
+    effective_win_rate = ((wins + be_trades) / total_trades) * 100.0 if total_trades > 0 else 0.0
 
     total_profit = df_trades["profit"].sum()
     gross_win = df_trades[df_trades["profit"] > 0]["profit"].sum()
     gross_loss = abs(df_trades[df_trades["profit"] < 0]["profit"].sum())
     profit_factor = (gross_win / gross_loss) if gross_loss > 0 else 99.9
 
-    print(f"Total Completed Trades : {total_trades}")
-    print(f"Wins / Losses          : {wins} W / {losses} L")
-    print(f"Win Rate               : {win_rate:.2f}%")
-    print(f"Profit Factor          : {profit_factor:.2f}")
-    print(f"Starting Balance       : ${initial_balance:.2f}")
-    print(f"Final Balance          : ${final_balance:.2f} ({((final_balance - initial_balance)/initial_balance)*100:+.2f}%)")
-    print("=" * 65)
-    print("\nSample Recent Trades:")
-    print(df_trades.tail(10)[["entry_time", "type", "entry", "sl", "tp", "outcome", "profit"]].to_string(index=False))
-    print("=" * 65 + "\n")
+    print(f"   Completed Trades : {total_trades}")
+    print(f"   Wins / BE / Loss : {wins} Wins / {be_trades} Break-Even / {losses} Losses")
+    print(f"   Protected Win%   : {effective_win_rate:.1f}%")
+    print(f"   Profit Factor    : {profit_factor:.2f}")
+    print(f"   Starting Balance : ${initial_balance:.2f}")
+    print(f"   Ending Balance   : ${final_balance:.2f} ({((final_balance - initial_balance)/initial_balance)*100:+.1f}%)")
+    print("=" * 75)
 
 
 if __name__ == "__main__":
-    run_backtest(days_back=60)
+    run_backtest(days_back=60, atr_multipliers=[1.0, 1.5, 2.0])

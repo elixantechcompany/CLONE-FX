@@ -1,6 +1,6 @@
 """
 Dual-Engine Live Strategy Diagnostic
-Tests both Engine 1 (Musumali M15/M30/H1) and Engine 2 (1-Minute M1 Scalper) simultaneously.
+Tests both Engine 1 (Musumali M5/M15/M30/H1) and Engine 2 (M1/M5 Scalper) simultaneously.
 """
 
 import yaml
@@ -39,20 +39,22 @@ def test():
     print("=" * 65)
 
     # Engine 1 Check: Musumali
-    sig1, e1, sl1, tp1 = musumali.generate_signal(sym)
-    print("\n[Engine 1: Musumali Strategy (M15, M30, H1)]")
+    sig1, e1, sl1, tp1, cid1, zid1, reason1 = musumali.generate_signal(sym)
+    print("\n[Engine 1: Musumali Strategy (M5, M15, M30, H1)]")
     if sig1:
-        print(f"  >>> ACTIVE SIGNAL: {sig1} @ {e1:.2f} | SL: {sl1:.2f} | TP: {tp1:.2f}")
+        print(f"  >>> ACTIVE SIGNAL: {sig1} @ {e1:.2f} | SL: {sl1:.2f} | TP: {tp1:.2f} | Zone: {zid1}")
+        print(f"      Reason: {reason1}")
     else:
-        print("  >>> Status: Monitoring reaction zones for liquidity sweeps...")
+        print(f"  >>> Status: Monitoring liquidity zones... ({reason1})")
 
-    # Engine 2 Check: M1 Scalper
-    sig2, e2, sl2, tp2 = scalper.generate_scalp_signal(sym)
-    print("\n[Engine 2: 1-Minute Fast Scalper (M1)]")
+    # Engine 2 Check: Micro Scalper
+    sig2, e2, sl2, tp2, cid2, reason2 = scalper.generate_scalp_signal(sym)
+    print("\n[Engine 2: Fast Micro-Scalper (M1, M5)]")
     if sig2:
         print(f"  >>> ACTIVE SIGNAL: {sig2} @ {e2:.2f} | SL: {sl2:.2f} | TP: {tp2:.2f}")
+        print(f"      Reason: {reason2}")
     else:
-        print("  >>> Status: Scanning 1-minute micro-sweeps & EMA momentum...")
+        print(f"  >>> Status: {reason2}")
 
     print("\n" + "=" * 65)
     print("  [OK] Both engines are operating in full harmony with zero conflicts!")
@@ -63,3 +65,4 @@ def test():
 
 if __name__ == "__main__":
     test()
+
