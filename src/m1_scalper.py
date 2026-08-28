@@ -258,8 +258,8 @@ class M1Scalper:
 
             sig, entry, sl, tp, cid, reason = self.evaluate_tf(symbol, tf_name, tf_const, digits, tick)
             if sig:
-                # Strict Trend Confirmation: Require strict alignment with M15 trend
-                if self.trend_filter_enabled:
+                # If trend filter is strictly enabled AND not in bidirectional mode, filter by trend
+                if self.trend_filter_enabled and not self.bidirectional:
                     if sig == "BUY" and trend_ctx != "UPTREND":
                         no_trade_reason = f"M15 Trend Filter Blocked BUY: Requires M15 UPTREND (Current: {trend_reason})"
                         continue
@@ -267,7 +267,7 @@ class M1Scalper:
                         no_trade_reason = f"M15 Trend Filter Blocked SELL: Requires M15 DOWNTREND (Current: {trend_reason})"
                         continue
 
-                annotated_reason = f"{reason} | [M15 Trend: {trend_reason}]"
+                annotated_reason = f"{reason} | [Context: {trend_reason}]"
                 return sig, entry, sl, tp, cid, annotated_reason, trend_reason, latest_bar_time, "Setup Valid"
             else:
                 no_trade_reason = reason or "No valid EMA pullback setup on bar"

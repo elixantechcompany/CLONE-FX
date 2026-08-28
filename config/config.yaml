@@ -49,10 +49,10 @@ zone_management:
 # ==============================================================================
 m1_scalper:
   enabled: true
-  bidirectional: true              # Take both BUY and SELL micro-pullback breakouts
+  bidirectional: true              # Full Bidirectional Trading: Execute both BUY and SELL opportunities
   require_daily_trend_alignment: false # Decoupled from macro Daily gate
-  trend_filter_enabled: true       # Strict M15 trend filter
-  trend_timeframe: "M15"           # Check M15 EMA20 trend context
+  trend_filter_enabled: false      # Bidirectional execution across all market conditions
+  trend_timeframe: "M15"           # Reference M15 trend context
   trend_ema_period: 20
   trend_slope_bars: 3
   magic_number: 1001               # Fix 10: Unique Magic Number for M1_Scalp
@@ -62,38 +62,37 @@ m1_scalper:
   slow_ema: 16
   sweep_lookback_bars: 8
   
-  # Strict 5-Point Confirmation & ATR-Scaled Risk
+  # Reasonable ATR-Scaled Risk & Stop Loss
   atr_period: 14                   # 14-period ATR on M1
   atr_sl_multiplier: 1.5           # 1.5x ATR stop-loss distance
-  risk_reward_ratio: 2.0           # 1:2 R:R target (3.0x ATR take-profit)
-  min_sl_dollars: 1.20             # Floor to cover Gold spread noise
-  max_loss_dollars: 2.20           # Scalp risk ceiling ($2.20 max)
+  risk_reward_ratio: 2.0           # 1:2 R:R target
+  min_sl_dollars: 2.00             # Reasonable stop loss floor (giving trade room to breathe)
+  max_loss_dollars: 3.00           # Cap max loss to prevent high losses
 
 # ==============================================================================
 # DYNAMIC PROFIT MANAGEMENT & RETRACEMENT PROTECTION (UNIFIED)
 # ==============================================================================
 profit_management:
-  # Tier 0: Hard Emergency Loss Shield
-  max_hard_loss_per_trade_dollars: 2.50 # Dynamic SL handles risk; hard shield cuts at -$2.50
-  max_account_floating_drawdown_dollars: 3.50 # Account-Wide Circuit Breaker: Auto-cuts if total floating loss hits -$3.50
+  # Tier 0: Direct Profit Target Closer ($1.00 - $2.00 Automatic Profit Take)
+  auto_take_profit_target_dollars: 1.50 # Direct target take profit ($1.50)
+  auto_take_profit_min_dollars: 1.00    # Close if profit reaches $1.00+ and stalls
   
-  # Tier 1: Early Zero-Loss Profit Lock starting from $0.30 and above
-  lock_profit_start_dollars: 0.30      # Lock in profits starting from $0.30 (covers spread + profit)
+  # Tier 1: Zero-Tolerance Loss Shield & Early Green Lock
+  lock_profit_start_dollars: 0.25      # Lock in profits starting from $0.25 (covers spread)
   breakeven_lock_offset: 0.15          # Lock +$0.15 guaranteed green profit
   
-  # Tier 2: Positive Profit Retracement Guard (Never let winning trades turn into losses)
-  retrace_guard_min_peak_dollars: 0.30 # Active as soon as trade touches $0.30 peak
-  retrace_guard_max_giveback_pct: 0.40 # Close if profit drops 40% from peak
+  # Tier 2: Positive Profit Retracement Guard (NEVER let profitable orders close with a loss)
+  retrace_guard_min_peak_dollars: 0.25 # Active as soon as trade touches $0.25 peak
+  retrace_guard_max_giveback_pct: 0.35 # Close if profit drops 35% from peak
   
-  # Tier 3: Rollback Protection starting from $0.75 and above
-  rollback_close_trigger_dollars: 0.75 # Active when trade reaches $0.75 or higher
-  rollback_retrace_tolerance_dollars: 0.20 # Max allowable dollar reduction from peak
-  rollback_giveback_max_pct: 0.25      # Max 25% reduction from peak before checking continuation
+  # Tier 3: Emergency Capital Shield
+  max_hard_loss_per_trade_dollars: 2.50 # Cap maximum loss per trade
+  max_account_floating_drawdown_dollars: 4.00 # Emergency account-wide shield
   
-  # Tier 4: Dynamic Continuous Trailing Stop from +0.6R
+  # Tier 4: Dynamic Continuous Trailing Stop
   trailing_enabled: true
   trailing_trigger_r: 0.6              # Start continuous trailing early at +0.6R
-  trailing_distance_dollars: 0.60      # Tight Gold trailing buffer ($0.60)
+  trailing_distance_dollars: 0.60      # Gold ATR trailing buffer ($0.60)
 
 # ==============================================================================
 # HARMONY & RISK ALLOCATION SPLIT (FIX 11 & FIX 12)

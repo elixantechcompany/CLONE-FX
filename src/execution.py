@@ -27,12 +27,14 @@ class OrderExecutor:
 
         # Dynamic Profit Management Configuration
         profit_cfg = config.get("profit_management", {})
+        self.auto_tp_target = profit_cfg.get("auto_take_profit_target_dollars", 1.50)
+        self.auto_tp_min = profit_cfg.get("auto_take_profit_min_dollars", 1.00)
         self.max_hard_loss = profit_cfg.get("max_hard_loss_per_trade_dollars", 2.50)
-        self.max_account_floating_dd = profit_cfg.get("max_account_floating_drawdown_dollars", 3.50)
-        self.lock_profit_start = profit_cfg.get("lock_profit_start_dollars", 0.30)
+        self.max_account_floating_dd = profit_cfg.get("max_account_floating_drawdown_dollars", 4.00)
+        self.lock_profit_start = profit_cfg.get("lock_profit_start_dollars", 0.25)
         self.be_offset = profit_cfg.get("breakeven_lock_offset", 0.15)
-        self.retrace_guard_min_peak = profit_cfg.get("retrace_guard_min_peak_dollars", 0.30)
-        self.retrace_guard_max_giveback = profit_cfg.get("retrace_guard_max_giveback_pct", 0.40)
+        self.retrace_guard_min_peak = profit_cfg.get("retrace_guard_min_peak_dollars", 0.25)
+        self.retrace_guard_max_giveback = profit_cfg.get("retrace_guard_max_giveback_pct", 0.35)
         self.rollback_trigger = profit_cfg.get("rollback_close_trigger_dollars", 0.75)
         self.rollback_retrace_tol = profit_cfg.get("rollback_retrace_tolerance_dollars", 0.20)
         self.rollback_giveback_pct = profit_cfg.get("rollback_giveback_max_pct", 0.25)
@@ -394,21 +396,38 @@ class OrderExecutor:
 
             # =================================================================
             # UNIFIED MULTI-TIER PROFIT PROTECTION & ZERO-LOSS RETRACEMENT SHIELD:
-            # 1. Early Zero-Loss Profit Lock at +$0.30+ (Guaranteed Green on Broker Server)
-            # 2. Positive Profit Retracement Guard (Auto-Close if profit drops back towards zero)
-            # 3. Rollback Protection starting from +$0.75+ (Auto-Close unless continuation assured)
-            # 4. 50% Partial Close at +1.0R (if volume >= 0.02)
-            # 5. Dynamic Continuous Trailing Stop from +0.6R
+            # 1. Direct Profit Target Closer ($1.00 - $2.00 Instant Market Exit)
+            # 2. Early Zero-Loss Profit Lock at +$0.25+ (Guaranteed Green on Broker Server)
+            # 3. Positive Profit Retracement Guard (Never let winning trades turn into losses)
+            # 4. Rollback Protection starting from +$0.75+ (Auto-Close unless continuation assured)
+            # 5. 50% Partial Close at +1.0R (if volume >= 0.02)
+            # 6. Dynamic Continuous Trailing Stop from +0.6R
             # =================================================================
 
-            # Step 1: Early Zero-Loss Profit Lock starting from +$0.30+ (or +0.30R)
-            if profit >= self.lock_profit_start or r_multiple >= 0.30:
+            # Step 1: Direct Profit Target Closer (Hitting $1.00 - $2.00 Target Triggers Instant Exit)
+            if profit >= self.auto_tp_target:
+                logger.info(
+                    f"[DIRECT PROFIT TARGET HIT] Ticket #{ticket} reached +${profit:.2f} (Target: +${self.auto_tp_target:.2f}) "
+                    f"-> Closing immediately at market to secure clean profits!"
+                )
+                self.close_position(ticket, symbol, reason=f"DirectProfitTarget_+${profit:.2f}")
+                continue
+            elif profit >= self.auto_tp_min and curr_peak >= (self.auto_tp_min + 0.15) and profit < curr_peak:
+                logger.info(
+                    f"[PROFIT BANKED >= $1.00] Ticket #{ticket} peaked at +${curr_peak:.2f} and stabilized at +${profit:.2f} "
+                    f"-> Closing immediately at market to bank profit!"
+                )
+                self.close_position(ticket, symbol, reason=f"BankProfit_+${profit:.2f}")
+                continue
+
+            # Step 2: Early Zero-Loss Profit Lock starting from +$0.25+ (or +0.25R)
+            if profit >= self.lock_profit_start or r_multiple >= 0.25:
                 if not t_data.get("be_applied", False):
                     be_lock = max(self.be_offset, 0.15)
                     if p_type == "BUY" and (current_sl < (open_price + be_lock) or current_sl == 0):
                         new_sl = round(open_price + be_lock, digits)
                         logger.info(
-                            f"[PROFIT LOCK >= $0.30] BUY #{ticket} reached +${profit:.2f} (Gain: {r_multiple:.2f}R) -> "
+                            f"[PROFIT LOCK >= $0.25] BUY #{ticket} reached +${profit:.2f} (Gain: {r_multiple:.2f}R) -> "
                             f"Moving SL from {current_sl:.2f} to Guaranteed Green {new_sl:.2f} (+${be_lock:.2f})"
                         )
                         if self.update_sl_tp(ticket, symbol, new_sl, current_tp):
@@ -417,27 +436,27 @@ class OrderExecutor:
                     elif p_type == "SELL" and (current_sl > (open_price - be_lock) or current_sl == 0):
                         new_sl = round(open_price - be_lock, digits)
                         logger.info(
-                            f"[PROFIT LOCK >= $0.30] SELL #{ticket} reached +${profit:.2f} (Gain: {r_multiple:.2f}R) -> "
+                            f"[PROFIT LOCK >= $0.25] SELL #{ticket} reached +${profit:.2f} (Gain: {r_multiple:.2f}R) -> "
                             f"Moving SL from {current_sl:.2f} to Guaranteed Green {new_sl:.2f} (+${be_lock:.2f})"
                         )
                         if self.update_sl_tp(ticket, symbol, new_sl, current_tp):
                             t_data["be_applied"] = True
                             current_sl = new_sl
 
-            # Step 2: Positive Profit Retracement & Zero-Tolerance Reversal Guard
-            # (Prevents winning trades from ever reversing into negative losses)
+            # Step 3: Positive Profit Retracement & Zero-Tolerance Reversal Guard
+            # (Rule: A trade that was once in profit must NEVER be allowed to close with a loss)
             if curr_peak >= self.retrace_guard_min_peak:
-                # Critical Rule: If trade peaked at >= +$0.30 and profit dropped to <= +$0.05, close immediately!
-                if profit <= 0.05:
+                # Critical Rule: If trade saw +$0.25+ green and profit dropped to <= +$0.02, close immediately!
+                if profit <= 0.02:
                     logger.info(
-                        f"[ZERO-LOSS RETRACEMENT CUT] Ticket #{ticket} peaked at +${curr_peak:.2f} but dropped to +${profit:.2f} "
-                        f"-> Auto-closing immediately at market to protect capital and prevent loss!"
+                        f"[ZERO-LOSS CUT] Ticket #{ticket} saw green (+${curr_peak:.2f}) but dropped to +${profit:.2f} "
+                        f"-> Auto-closing immediately at market to guarantee zero loss!"
                     )
-                    self.close_position(ticket, symbol, reason=f"ZeroLossRetraceCut_Peaked+${curr_peak:.2f}_Saved+${profit:.2f}")
+                    self.close_position(ticket, symbol, reason=f"ZeroLossCut_Peaked+${curr_peak:.2f}_Saved+${profit:.2f}")
                     continue
 
-                # Giveback Guard: If profit drops 40% from peak above $0.50, lock in remaining profit
-                if curr_peak >= 0.50 and profit <= curr_peak * (1.0 - self.retrace_guard_max_giveback):
+                # Giveback Guard: If profit drops 35% from peak above $0.40, lock in remaining profit
+                if curr_peak >= 0.40 and profit <= curr_peak * (1.0 - self.retrace_guard_max_giveback):
                     logger.info(
                         f"[PROFIT GIVEBACK GUARD] Ticket #{ticket} peaked at +${curr_peak:.2f} but dropped to +${profit:.2f} "
                         f"(gave back >= {self.retrace_guard_max_giveback*100:.0f}% from peak) -> Closing immediately to bank profit!"
