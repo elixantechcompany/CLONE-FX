@@ -12,25 +12,25 @@ symbols:
     - "GOLD"
 
 # ==============================================================================
-# ENGINE 1: Musumali Liquidity Sweeps (H1, H4) [Magic: 2001]
+# ENGINE 1: Musumali Liquidity Sweeps (M15, M30, H1, H4) [Magic: 2001]
 # ==============================================================================
 musumali_strategy:
   enabled: true
-  signal_only_mode: false          # Live Order Execution enabled on H1 & H4
+  signal_only_mode: false          # Live Order Execution enabled
   magic_number: 2001               # Fix 10: Unique Magic Number for Musumali_Sweep
-  timeframes: ["H1", "H4"]         # Fix 8: Strict Higher Timeframe isolation (H1 & H4 only)
+  timeframes: ["M15", "M30", "H1", "H4"] # Multi-timeframe institutional sweep scanner
   cluster_search_bars: 15
   min_rejection_wick_pct: 0.15     # 15% wick rejection
   risk_reward_ratio: 2.0           # 1:2 Risk to Reward Target
   
   # Fix 21: ATR-Scaled Dynamic Stop Loss (1.5x ATR)
-  atr_period: 14                   # 14-period ATR on execution timeframe (H1/H4)
+  atr_period: 14                   # 14-period ATR on execution timeframe
   atr_sl_multiplier: 1.5           # 1.5x ATR stop-loss distance
   min_sl_distance_dollars: 2.00    # Floor to prevent micro-spread compression
   max_sl_distance_dollars: 15.00   # Volatility ceiling
 
   # Higher-Timeframe Bias
-  htf_timeframe: "D1"
+  htf_timeframe: "H1"
   require_htf_alignment: true
   htf_fast_ema: 20
   htf_slow_ema: 50
@@ -45,19 +45,19 @@ zone_management:
   zone_cooldown_minutes: 10
 
 # ==============================================================================
-# ENGINE 2: 1-MINUTE MICRO-SCALPER [Magic: 1001]
+# ENGINE 2: 1-MINUTE & 5-MINUTE MICRO-SCALPER [Magic: 1001]
 # ==============================================================================
 m1_scalper:
   enabled: true
-  bidirectional: true              # Take both BUY and SELL micro-pullback breakouts on M1
+  bidirectional: true              # Take both BUY and SELL micro-pullback breakouts
   require_daily_trend_alignment: false # Decoupled from macro Daily gate
   trend_filter_enabled: true       # Strict M15 trend filter
   trend_timeframe: "M15"           # Check M15 EMA20 trend context
   trend_ema_period: 20
   trend_slope_bars: 3
   magic_number: 1001               # Fix 10: Unique Magic Number for M1_Scalp
-  timeframes: ["M1"]               # Scalper strictly operates on M1
-  max_concurrent_scalp: 1          # Micro-account: Max 1 scalper position
+  timeframes: ["M1", "M5"]         # High-frequency M1 & M5 scalping
+  max_concurrent_scalp: 2          # Up to 2 scalper positions
   fast_ema: 7
   slow_ema: 16
   sweep_lookback_bars: 8
