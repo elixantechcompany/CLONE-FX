@@ -7,6 +7,7 @@ Enforces:
 """
 
 import logging
+import re
 import time
 from typing import Dict, List, Optional, Union, Tuple
 import pandas as pd
@@ -203,6 +204,7 @@ class OrderExecutor:
         tick = mt5.symbol_info_tick(symbol)
         price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
         filling_mode = self._get_supported_filling_mode(info)
+        clean_comment = re.sub(r'[^a-zA-Z0-9_]', '', str(reason))[:20] or "part_close"
 
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
@@ -213,7 +215,7 @@ class OrderExecutor:
             "price": price,
             "deviation": int(self.slippage),
             "magic": int(pos.magic),
-            "comment": reason[:31],
+            "comment": clean_comment,
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": filling_mode,
         }
@@ -247,6 +249,7 @@ class OrderExecutor:
         tick = mt5.symbol_info_tick(symbol)
         price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
         filling_mode = self._get_supported_filling_mode(info)
+        clean_comment = re.sub(r'[^a-zA-Z0-9_]', '', str(reason))[:20] or "close"
 
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
@@ -257,7 +260,7 @@ class OrderExecutor:
             "price": price,
             "deviation": int(self.slippage),
             "magic": int(pos.magic),
-            "comment": reason[:31],
+            "comment": clean_comment,
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": filling_mode,
         }
