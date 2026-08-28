@@ -99,6 +99,7 @@ class M1Scalper:
         df["ema_slow"] = df["close"].ewm(span=self.slow_ema, adjust=False).mean()
 
         prev_bar = df.iloc[-2]
+        prior_bar = df.iloc[-3]
         c_time_str = str(prev_bar["time"])
 
         window = df.iloc[-(self.sweep_lookback + 2):-2]
@@ -110,7 +111,7 @@ class M1Scalper:
         rsi = self.calc_rsi(df, period=14)
         vol_avg = df["tick_volume"].iloc[-7:-2].mean() if "tick_volume" in df.columns else 1.0
         curr_vol = prev_bar.get("tick_volume", 1.0)
-        vol_confirmed = curr_vol >= (vol_avg * 0.85)
+        vol_confirmed = curr_vol >= (vol_avg * 0.80)
 
         raw_sl = atr * self.atr_sl_multiplier
         sl_dist = round(max(min(raw_sl, self.max_sl_dollars), self.min_sl_dollars), digits)
@@ -121,54 +122,96 @@ class M1Scalper:
             return None, 0.0, 0.0, 0.0, None, f"Flat bar on {tf_name}"
 
         body_size = abs(prev_bar["close"] - prev_bar["open"])
+        prior_body = abs(prior_bar["close"] - prior_bar["open"])
         upper_wick = prev_bar["high"] - max(prev_bar["open"], prev_bar["close"])
         lower_wick = min(prev_bar["open"], prev_bar["close"]) - prev_bar["low"]
 
         # =====================================================================
-        # CONFIRMED SELL SETUP (M15 DOWNTREND PULLBACK REJECTION / BREAKDOWN)
+        # CANDLESTICK PATTERN RECOGNITION (TEXTBOOK CHART & CANDLE STRUCTURE)
         # =====================================================================
-        is_bearish = prev_bar["close"] <= prev_bar["open"] or prev_bar["close"] < prev_bar["ema_fast"]
-        is_sell_momentum = (prev_bar["ema_fast"] <= prev_bar["ema_slow"]) or (prev_bar["high"] >= prev_bar["ema_slow"] and is_bearish)
+        # Bullish Patterns
+        is_bull_pinbar = (lower_wick / tot_range >= 0.50) and (upper_wick / tot_range <= 0.25)
+        is_bull_engulfing = (prev_bar["close"] > prev_bar["open"]) and (prev_bar["close"] > prior_bar["high"]) and (body_size >= prior_body * 1.1)
+        is_bull_momentum = (prev_bar["close"] > prev_bar["open"]) and (body_size / tot_range >= 0.55) and (prev_bar["close"] > prev_bar["ema_fast"])
+        is_bull_sweep = (prev_bar["low"] < recent_low) and (prev_bar["close"] > recent_low) and (lower_wick / tot_range >= 0.40)
 
-        if is_sell_momentum and is_bearish:
-            # Stage 5 Trigger Confirmation: Clean breakdown below previous low
-            if tick.bid <= prev_bar["low"]:
-                # Freshness: Must not be chased beyond 0.75 ATR below low
-                if (prev_bar["low"] - tick.bid) <= (atr * 0.75):
-                    entry = tick.bid
-                    stop_loss = round(entry + sl_dist, digits)
-                    take_profit = round(entry - tp_dist, digits)
-                    candle_id = f"SCALP_SELL_{tf_name}_{c_time_str}"
-                    reason = (
-                        f"[CONFIRMED SCALP SELL {tf_name}] Pullback Breakdown @ {entry:.2f} | "
-                        f"RSI: {rsi:.1f} | M1 ATR({self.atr_period}): ${atr:.2f} | "
-                        f"Dynamic SL: {stop_loss:.2f} (-${sl_dist:.2f}) | TP: {take_profit:.2f} (+${tp_dist:.2f}) [1:{self.risk_reward_ratio:.1f} R:R]"
-                    )
-                    return "SELL", entry, stop_loss, take_profit, candle_id, reason
+        # Bearish Patterns
+        is_bear_pinbar = (upper_wick / tot_range >= 0.50) and (lower_wick / tot_range <= 0.25)
+        is_bear_engulfing = (prev_bar["close"] < prev_bar["open"]) and (prev_bar["close"] < prior_bar["low"]) and (body_size >= prior_body * 1.1)
+        is_bear_momentum = (prev_bar["close"] < prev_bar["open"]) and (body_size / tot_range >= 0.55) and (prev_bar["close"] < prev_bar["ema_fast"])
+        is_bear_sweep = (prev_bar["high"] > recent_high) and (prev_bar["close"] < recent_high) and (upper_wick / tot_range >= 0.40)
 
         # =====================================================================
-        # CONFIRMED BUY SETUP (M15 UPTREND PULLBACK REJECTION / BREAKOUT)
+        # 1. CONFIRMED BEARISH / SELL SETUP
         # =====================================================================
-        is_bullish = prev_bar["close"] >= prev_bar["open"] or prev_bar["close"] > prev_bar["ema_fast"]
-        is_buy_momentum = (prev_bar["ema_fast"] >= prev_bar["ema_slow"]) or (prev_bar["low"] <= prev_bar["ema_slow"] and is_bullish)
+        is_sell_trend = prev_bar["ema_fast"] <= prev_bar["ema_slow"]
+        valid_bear_pattern = is_bear_pinbar or is_bear_engulfing or (is_sell_trend and is_bear_momentum) or is_bear_sweep
 
-        if is_buy_momentum and is_bullish:
-            # Stage 5 Trigger Confirmation: Clean breakout above previous high
-            if tick.ask >= prev_bar["high"]:
-                # Freshness: Must not be chased beyond 0.75 ATR above high
-                if (tick.ask - prev_bar["high"]) <= (atr * 0.75):
-                    entry = tick.ask
-                    stop_loss = round(entry - sl_dist, digits)
-                    take_profit = round(entry + tp_dist, digits)
-                    candle_id = f"SCALP_BUY_{tf_name}_{c_time_str}"
-                    reason = (
-                        f"[CONFIRMED SCALP BUY {tf_name}] Pullback Breakout @ {entry:.2f} | "
-                        f"RSI: {rsi:.1f} | M1 ATR({self.atr_period}): ${atr:.2f} | "
-                        f"Dynamic SL: {stop_loss:.2f} (-${sl_dist:.2f}) | TP: {take_profit:.2f} (+${tp_dist:.2f}) [1:{self.risk_reward_ratio:.1f} R:R]"
-                    )
-                    return "BUY", entry, stop_loss, take_profit, candle_id, reason
+        if valid_bear_pattern:
+            # Pattern classification label
+            if is_bear_sweep:
+                pattern_lbl = "Bearish Liquidity Sweep"
+            elif is_bear_pinbar:
+                pattern_lbl = "Bearish Shooting Star Rejection"
+            elif is_bear_engulfing:
+                pattern_lbl = "Bearish Engulfing"
+            else:
+                pattern_lbl = "Bearish Trend Momentum"
 
-        return None, 0.0, 0.0, 0.0, None, f"No confirmed setup on {tf_name} ({c_time_str})"
+            # Context Check: No selling into oversold RSI extreme (<30) unless strong rejection pinbar
+            rsi_ok_sell = (rsi >= 30.0 and rsi <= 65.0) or (is_bear_pinbar or is_bear_sweep)
+
+            if rsi_ok_sell:
+                # Trigger Confirmation: Bid cleanly breaks previous bar low
+                if tick.bid <= prev_bar["low"]:
+                    if (prev_bar["low"] - tick.bid) <= (atr * 0.75):
+                        entry = tick.bid
+                        stop_loss = round(entry + sl_dist, digits)
+                        take_profit = round(entry - tp_dist, digits)
+                        candle_id = f"SCALP_SELL_{tf_name}_{c_time_str}"
+                        reason = (
+                            f"[CONFIRMED SELL {tf_name}] Pattern: {pattern_lbl} @ {entry:.2f} | "
+                            f"RSI: {rsi:.1f} | ATR({self.atr_period}): ${atr:.2f} | "
+                            f"SL: {stop_loss:.2f} (-${sl_dist:.2f}) | TP: {take_profit:.2f} (+${tp_dist:.2f}) [1:{self.risk_reward_ratio:.1f} R:R]"
+                        )
+                        return "SELL", entry, stop_loss, take_profit, candle_id, reason
+
+        # =====================================================================
+        # 2. CONFIRMED BULLISH / BUY SETUP
+        # =====================================================================
+        is_buy_trend = prev_bar["ema_fast"] >= prev_bar["ema_slow"]
+        valid_bull_pattern = is_bull_pinbar or is_bull_engulfing or (is_buy_trend and is_bull_momentum) or is_bull_sweep
+
+        if valid_bull_pattern:
+            # Pattern classification label
+            if is_bull_sweep:
+                pattern_lbl = "Bullish Liquidity Sweep"
+            elif is_bull_pinbar:
+                pattern_lbl = "Bullish Hammer/Pinbar Rejection"
+            elif is_bull_engulfing:
+                pattern_lbl = "Bullish Engulfing"
+            else:
+                pattern_lbl = "Bullish Trend Momentum"
+
+            # Context Check: No buying into falling knife / oversold crash (<38) unless confirmed hammer/sweep rejection!
+            rsi_ok_buy = (rsi >= 38.0 and rsi <= 70.0) or (is_bull_pinbar or is_bull_sweep)
+
+            if rsi_ok_buy:
+                # Trigger Confirmation: Ask cleanly breaks previous bar high
+                if tick.ask >= prev_bar["high"]:
+                    if (tick.ask - prev_bar["high"]) <= (atr * 0.75):
+                        entry = tick.ask
+                        stop_loss = round(entry - sl_dist, digits)
+                        take_profit = round(entry + tp_dist, digits)
+                        candle_id = f"SCALP_BUY_{tf_name}_{c_time_str}"
+                        reason = (
+                            f"[CONFIRMED BUY {tf_name}] Pattern: {pattern_lbl} @ {entry:.2f} | "
+                            f"RSI: {rsi:.1f} | ATR({self.atr_period}): ${atr:.2f} | "
+                            f"SL: {stop_loss:.2f} (-${sl_dist:.2f}) | TP: {take_profit:.2f} (+${tp_dist:.2f}) [1:{self.risk_reward_ratio:.1f} R:R]"
+                        )
+                        return "BUY", entry, stop_loss, take_profit, candle_id, reason
+
+        return None, 0.0, 0.0, 0.0, None, f"No candlestick pattern on {tf_name} ({c_time_str})"
 
     def check_momentum_reversal(self, symbol: str, position_type: str) -> Tuple[bool, str]:
         """
