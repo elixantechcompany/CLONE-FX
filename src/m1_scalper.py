@@ -35,6 +35,7 @@ class M1Scalper:
         self.trend_tf_const = mt5.TIMEFRAME_M15 if self.trend_tf_str == "M15" else mt5.TIMEFRAME_H1
         self.trend_ema_period = self.scalp_cfg.get("trend_ema_period", 20)
         self.trend_slope_bars = self.scalp_cfg.get("trend_slope_bars", 3)
+        self.bidirectional = self.scalp_cfg.get("bidirectional", False)
 
         tf_list = self.scalp_cfg.get("timeframes", ["M1"])
         self.timeframes = []
