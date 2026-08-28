@@ -28,6 +28,7 @@ from src.execution import OrderExecutor
 from src.m1_scalper import M1Scalper
 from src.risk_manager import RiskManager
 from src.strategy import MusumaliStrategy
+from src.notifier import Notifier
 
 
 def setup_logger(log_level: str = "INFO") -> logging.Logger:
@@ -81,6 +82,7 @@ class GoldTradingBot:
 
         # Initialize Submodules
         self.connector = MT5Connector()
+        self.notifier = Notifier(self.config)
         self.risk_manager = RiskManager(self.config, self.connector)
         self.executor = OrderExecutor(self.config, risk_manager=self.risk_manager)
         self.musumali_strategy = MusumaliStrategy(self.config)
@@ -88,18 +90,23 @@ class GoldTradingBot:
 
         self.active_symbol: Optional[str] = None
         self.is_running = False
-        self.last_heartbeat_time = 0.0
+        self.last_quick_heartbeat_time = 0.0
+        self.last_comprehensive_heartbeat_time = 0.0
+        self.quick_heartbeat_interval = self.config.get("system", {}).get("quick_heartbeat_interval_seconds", 60)
+        self.comprehensive_heartbeat_interval = self.config.get("system", {}).get("heartbeat_interval_seconds", 900)
         self.last_logged_scalp_bar: Optional[str] = None
         self.last_logged_h1_bar: Optional[str] = None
 
     def _load_traded_candles(self):
-        """Loads previously traded candle IDs from disk to prevent re-entering on bot restarts."""
+        """Loads previously traded candle IDs from disk, keeping only recent active session IDs."""
         try:
             if os.path.exists(self.traded_candles_file):
                 with open(self.traded_candles_file, "r") as f:
                     data = json.load(f)
-                    self.traded_candle_ids = set(data.get("candle_ids", []))
-                    self.logger.info(f"Loaded {len(self.traded_candle_ids)} previously traded candle IDs from disk.")
+                    # Keep only recent 20 candle IDs to prevent stale blocks
+                    raw_ids = data.get("candle_ids", [])
+                    self.traded_candle_ids = set(raw_ids[-20:])
+                    self.logger.info(f"Loaded {len(self.traded_candle_ids)} recent traded candle IDs from disk.")
         except Exception as e:
             self.logger.warning(f"Could not load traded candles from disk: {e}")
 
@@ -108,7 +115,7 @@ class GoldTradingBot:
         try:
             os.makedirs(os.path.dirname(self.traded_candles_file), exist_ok=True)
             with open(self.traded_candles_file, "w") as f:
-                json.dump({"candle_ids": list(self.traded_candle_ids)}, f)
+                json.dump({"candle_ids": list(self.traded_candle_ids)[-20:]}, f)
         except Exception as e:
             self.logger.warning(f"Could not persist traded candles: {e}")
 
@@ -194,6 +201,89 @@ class GoldTradingBot:
 
         return True, "OK"
 
+    def _emit_self_reporting_heartbeat(
+        self,
+        equity: float,
+        acc: dict,
+        all_positions: list,
+        musumali_positions: list,
+        scalper_positions: list,
+        daily_trend: str,
+        trend_reason: str,
+        spread_ok: bool,
+        current_spread: int,
+        session_name: str,
+        in_news: bool,
+        news_reason: str,
+        can_trade: bool,
+        breaker_reason: str,
+    ):
+        """
+        Fix 32: Self-Reporting Heartbeat. Emits a comprehensive periodic diagnostic report
+        every 15-30 minutes so market status and setup conditions don't require manual checking.
+        """
+        now_utc_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        perf = self.risk_manager.get_module_performance_summary()
+        cb_status = self.risk_manager.get_circuit_breaker_status()
+        tick = mt5.symbol_info_tick(self.active_symbol)
+        ask_str = f"{tick.ask:.2f}" if tick else "N/A"
+        bid_str = f"{tick.bid:.2f}" if tick else "N/A"
+
+        # Check M15 context
+        m15_ctx, m15_reason, m15_slope = self.m1_scalper.get_trend_context(self.active_symbol)
+
+        # Build Status Diagnostics for Engine 1
+        e1_status = "ACTIVE"
+        e1_diag = "Scanning M15/M30/H1/H4 for liquidity sweep boundaries"
+        if not can_trade:
+            e1_status = "HALTED"
+            e1_diag = breaker_reason
+        elif in_news:
+            e1_status = "NEWS_BLACKOUT"
+            e1_diag = news_reason
+        elif not spread_ok:
+            e1_status = "SPREAD_FILTER"
+            e1_diag = f"Spread {current_spread} pts > max allowed"
+
+        # Build Status Diagnostics for Engine 2
+        e2_status = "ACTIVE"
+        e2_diag = f"Scanning M1/M5/M15 pullbacks & breakouts (Context: {m15_ctx})"
+        if not can_trade:
+            e2_status = "HALTED"
+            e2_diag = breaker_reason
+        elif in_news:
+            e2_status = "NEWS_BLACKOUT"
+            e2_diag = news_reason
+
+        open_summary = "None (0/2 Active)"
+        if all_positions:
+            open_items = []
+            for p in all_positions:
+                open_items.append(f"#{p['ticket']} ({p['type']} {p['volume']} lots @ {p['price_open']:.2f}, P&L: ${p['profit']:+.2f})")
+            open_summary = " | ".join(open_items)
+
+        report = (
+            f"\n{'='*80}\n"
+            f" [SELF-REPORTING HEARTBEAT FIX 32] {now_utc_str} | System 24/7 Healthy\n"
+            f"{'-'*80}\n"
+            f" 1. Capital & Performance Overview:\n"
+            f"    - Balance: ${acc.get('balance', equity):.2f} | Equity: ${equity:.2f} | Margin Free: ${acc.get('margin_free', equity):.2f}\n"
+            f"    - Realized P&L Today: ${perf['total_day_pnl']:+.2f} (Scalp: ${perf['scalp_pnl']:+.2f} [{perf['scalp_wins']}W/{perf['scalp_trades']-perf['scalp_wins']}L], Musumali: ${perf['musumali_pnl']:+.2f} [{perf['musumali_wins']}W/{perf['musumali_trades']-perf['musumali_wins']}L])\n"
+            f"    - Open Positions: {open_summary}\n"
+            f"    - Circuit Breakers: {cb_status}\n\n"
+            f" 2. Multi-Timeframe Trend Assessment:\n"
+            f"    - D1 Macro Bias:   {daily_trend} ({trend_reason})\n"
+            f"    - M15 Scalp Bias:  {m15_ctx} (Slope: {m15_slope:+.2f})\n"
+            f"    - Current Market:  Ask {ask_str} / Bid {bid_str} | Spread: {current_spread} pts ({'OK' if spread_ok else 'HIGH'})\n\n"
+            f" 3. Module Setup Qualification & Diagnostic Status:\n"
+            f"    - Active Session:  {session_name} | Macro News: {'BLACKOUT' if in_news else 'CLEAR'}\n"
+            f"    - Engine 1 (Musumali Sweeps #2001): [{e1_status}] -> {e1_diag}\n"
+            f"    - Engine 2 (M1/M5 Scalper #1001):   [{e2_status}] -> {e2_diag}\n"
+            f"{'='*80}"
+        )
+        self.logger.info(report)
+        self.notifier.notify_heartbeat(report)
+
     def _tick_cycle(self):
         """Unified tick execution: manages active profits, checks circuit breakers, and runs both engines."""
         acc = self.connector.get_account_summary()
@@ -210,21 +300,24 @@ class GoldTradingBot:
         musumali_positions = [p for p in all_positions if p["magic"] == self.executor.magic_musumali]
         scalper_positions = [p for p in all_positions if p["magic"] == self.executor.magic_scalper]
 
-        # Step 1b: Check Opposite Momentum Reversals on Active Positions (Cuts early when market turns)
-        for pos in scalper_positions:
-            is_reversed, rev_msg = self.m1_scalper.check_momentum_reversal(self.active_symbol, pos["type"])
-            if is_reversed:
-                self.logger.info(
-                    f"[OPPOSITE MOMENTUM EXIT] Scalp #{pos['ticket']} ({pos['type']}) closing early: {rev_msg} (Profit: ${pos['profit']:+.2f})"
-                )
-                self.executor.close_position(pos["ticket"], self.active_symbol, reason=f"MomentumReversal_{pos['type']}")
-
         # Evaluate Daily Trend Bias for Heartbeat & Diagnostic
         daily_trend, trend_reason = self.musumali_strategy.get_daily_market_trend(self.active_symbol)
 
-        # Periodic Heartbeat, Per-Module P&L & Funnel Audit Update (Fix 13)
-        if (now - self.last_heartbeat_time) >= self.heartbeat_interval:
-            self.last_heartbeat_time = now
+        # Circuit Breakers & Daily Limits (Fix 15 & Fix 30)
+        can_trade, breaker_reason = self.risk_manager.check_circuit_breakers(equity)
+
+        # Spread Safety Check (Fix 25)
+        spread_ok, current_spread, spread_reason = self.risk_manager.check_spread_allowed(self.active_symbol)
+
+        # News Blackout Window Check (Fix 27)
+        in_news, news_reason = self.risk_manager.is_in_news_blackout()
+
+        # Session Filter Check (Fix 28)
+        session_ok, session_name, session_reason = self.risk_manager.is_session_allowed()
+
+        # Periodic Quick 1-Minute Heartbeat
+        if (now - self.last_quick_heartbeat_time) >= self.quick_heartbeat_interval:
+            self.last_quick_heartbeat_time = now
             tick = mt5.symbol_info_tick(self.active_symbol)
             bid_str = f"{tick.bid:.2f}" if tick else "N/A"
             ask_str = f"{tick.ask:.2f}" if tick else "N/A"
@@ -245,12 +338,25 @@ class GoldTradingBot:
             # Fix 3: Instrument & Log 4-Stage Entry Filter Funnel
             self.musumali_strategy.log_funnel_audit()
 
-        # Circuit Breakers & Daily Limits
-        can_trade, breaker_reason = self.risk_manager.check_circuit_breakers(equity)
-
-        # Spread Safety Check
-        spread_ok, current_spread = self.risk_manager.check_spread_allowed(self.active_symbol)
-        spread_reason = f"Spread {current_spread} > max allowed" if not spread_ok else "OK"
+        # Fix 32: Periodic Comprehensive Self-Reporting Heartbeat (Every 15 mins / 900s)
+        if (now - self.last_comprehensive_heartbeat_time) >= self.comprehensive_heartbeat_interval:
+            self.last_comprehensive_heartbeat_time = now
+            self._emit_self_reporting_heartbeat(
+                equity=equity,
+                acc=acc,
+                all_positions=all_positions,
+                musumali_positions=musumali_positions,
+                scalper_positions=scalper_positions,
+                daily_trend=daily_trend,
+                trend_reason=trend_reason,
+                spread_ok=spread_ok,
+                current_spread=current_spread,
+                session_name=session_name,
+                in_news=in_news,
+                news_reason=news_reason,
+                can_trade=can_trade,
+                breaker_reason=breaker_reason,
+            )
 
         # =====================================================================
         # ENGINE 1: Musumali Institutional Sweeps (H1, H4) [Magic: 2001]
@@ -280,6 +386,16 @@ class GoldTradingBot:
                         f"[MUSUMALI HTF CANDLE DECISION FIX 20] H1 Bar: {h1_bar_time} | Daily Gate: {daily_trend} | "
                         f"Status: SPREAD_HIGH | Action: SKIPPED | Reason: {spread_reason}"
                     )
+                elif in_news:
+                    self.logger.info(
+                        f"[MUSUMALI HTF CANDLE DECISION FIX 20] H1 Bar: {h1_bar_time} | Daily Gate: {daily_trend} | "
+                        f"Status: NEWS_BLACKOUT | Action: SKIPPED | Reason: {news_reason}"
+                    )
+                elif not session_ok:
+                    self.logger.info(
+                        f"[MUSUMALI HTF CANDLE DECISION FIX 20] H1 Bar: {h1_bar_time} | Daily Gate: {daily_trend} | "
+                        f"Status: SESSION_BLOCKED | Action: SKIPPED | Reason: {session_reason}"
+                    )
                 elif in_cd_m:
                     self.logger.info(
                         f"[MUSUMALI HTF CANDLE DECISION FIX 20] H1 Bar: {h1_bar_time} | Daily Gate: {daily_trend} | "
@@ -300,7 +416,10 @@ class GoldTradingBot:
             time_since_trade = time.time() - self.last_trade_execution_time
             in_trade_cooldown = (trade_cooldown > 0 and time_since_trade < trade_cooldown)
 
-            if can_trade and spread_ok and not in_cd_m and not in_trade_cooldown and sig in ("BUY", "SELL") and candle_id:
+            # Fix 30: Prevent duplicate orders for identical setup
+            is_dup_m = any(p["magic"] == self.executor.magic_musumali and p["type"] == sig for p in all_positions) if sig else False
+
+            if can_trade and spread_ok and not in_news and session_ok and not in_cd_m and not in_trade_cooldown and not is_dup_m and sig in ("BUY", "SELL") and candle_id:
                 if candle_id in self.traded_candle_ids:
                     pass  # Already executed on this specific candle
                 elif len(all_positions) >= self.total_max_open:
@@ -396,6 +515,16 @@ class GoldTradingBot:
                         f"[M1 SCALP CANDLE DECISION FIX 20] M1 Bar: {latest_bar_time} | M15 Trend: {trend_context_s} | "
                         f"Status: SPREAD_HIGH | Action: SKIPPED | Reason: {spread_reason}"
                     )
+                elif in_news:
+                    self.logger.info(
+                        f"[M1 SCALP CANDLE DECISION FIX 20] M1 Bar: {latest_bar_time} | M15 Trend: {trend_context_s} | "
+                        f"Status: NEWS_BLACKOUT | Action: SKIPPED | Reason: {news_reason}"
+                    )
+                elif not session_ok:
+                    self.logger.info(
+                        f"[M1 SCALP CANDLE DECISION FIX 20] M1 Bar: {latest_bar_time} | M15 Trend: {trend_context_s} | "
+                        f"Status: SESSION_BLOCKED | Action: SKIPPED | Reason: {session_reason}"
+                    )
                 elif in_cd_s:
                     self.logger.info(
                         f"[M1 SCALP CANDLE DECISION FIX 20] M1 Bar: {latest_bar_time} | M15 Trend: {trend_context_s} | "
@@ -412,7 +541,10 @@ class GoldTradingBot:
                         f"Status: ACTIVE | Action: SKIPPED | Reason: {no_trade_reason}"
                     )
 
-            if can_trade and spread_ok and not in_cd_s and not in_trade_cooldown:
+            # Fix 30: Prevent duplicate orders for identical setup
+            is_dup_s = any(p["magic"] == self.executor.magic_scalper and p["type"] == sig_s for p in all_positions) if sig_s else False
+
+            if can_trade and spread_ok and not in_news and session_ok and not in_cd_s and not in_trade_cooldown and not is_dup_s:
                 # Check if signal is allowed (Bidirectional or Trend-Aligned)
                 signal_allowed = False
                 if sig_s in ("BUY", "SELL"):

@@ -47,6 +47,11 @@ class OrderExecutor:
         self.trailing_dist = profit_cfg.get("trailing_distance_dollars", 0.80)
         self.auto_close_enabled = profit_cfg.get("auto_close_enabled", True)
 
+        # Fix 31: Hard Maximum Loss Circuit Breaker (Absolute Backstop)
+        cb_cfg = config.get("circuit_breakers", {})
+        self.hard_max_loss_dollars = cb_cfg.get("hard_max_loss_per_trade_dollars", 1.35)
+        self.hard_max_loss_pct = cb_cfg.get("hard_max_loss_equity_pct", 12.0)
+
         # Peak Profit Tracker for each active ticket
         self.peak_profit: Dict[int, float] = {}
         # Zone tracking per ticket for feedback loop
@@ -145,21 +150,28 @@ class OrderExecutor:
             return None
 
         if result.retcode != mt5.TRADE_RETCODE_DONE:
-            logger.error(f"Order failed with retcode [{result.retcode}]: {result.comment}")
+            logger.error(f"[SLIPPAGE PROTECTION FIX 26] Order failed with retcode [{result.retcode}]: {result.comment}")
             return None
 
         roundtrip_ms = (t_order_done - t_order_sent) * 1000.0
         ticket = result.order
+        fill_price = result.price if result.price > 0 else price
+        slippage_pts = abs(fill_price - price) / info.point if info.point > 0 else 0
         self.peak_profit[ticket] = 0.0
         self.ticket_zones[ticket] = zone_id
-        
+
+        # Fix 28: Identify active trading session
+        session_name = "Session"
+        if self.risk_manager and hasattr(self.risk_manager, "get_current_trading_session"):
+            session_name = self.risk_manager.get_current_trading_session()
+
         # Track initial risk distance for +1R Break-Even & 1:1 R:R Partial Close
-        risk_dist = abs(price - sl_rounded) if sl_rounded > 0 else 1.0
+        risk_dist = abs(fill_price - sl_rounded) if sl_rounded > 0 else 1.0
         self.known_tickets[ticket] = {
             "symbol": symbol,
             "type": order_type.upper(),
             "volume": volume,
-            "entry_price": price,
+            "entry_price": fill_price,
             "initial_sl": sl_rounded,
             "initial_tp": tp_rounded,
             "risk_distance": risk_dist,
@@ -168,10 +180,12 @@ class OrderExecutor:
             "zone_id": zone_id,
             "magic": used_magic,
             "comment": comment,
+            "session": session_name,
         }
 
         logger.info(
-            f"ORDER LIVE! Ticket: #{ticket} ({comment}) | Entry Price: {result.price} | "
+            f"[SLIPPAGE & SESSION AUDIT FIX 26 & 28] Order #{ticket} ({comment}) filled in {session_name} Session @ {fill_price:.2f} "
+            f"(Req: {price:.2f}, Slippage: {slippage_pts:.1f} pts / Limit: {self.slippage} pts) | "
             f"SL: {sl_rounded:.2f} (Risk: ${risk_dist:.2f}) | TP: {tp_rounded:.2f} | Zone: {zone_id}"
         )
         return ticket
@@ -402,174 +416,91 @@ class OrderExecutor:
                 f"partial_close_active={partial_active}, giveback_cap_active={giveback_active}"
             )
 
-            # Tier 0: Emergency Hard Loss Shield (Scales to intended SL risk to prevent premature cuts on HTF)
-            trade_max_loss = max(self.max_hard_loss, (risk_dist * volume * 100.0) * 1.15)
-            if profit <= -trade_max_loss:
-                logger.warning(
-                    f"[HARD LOSS SHIELD] Ticket #{ticket} loss hit -${abs(profit):.2f} >= cap -${trade_max_loss:.2f}! "
-                    f"Cutting loss immediately to protect capital."
+            # Fix 31: Hard Maximum Loss Circuit Breaker (Absolute Backstop)
+            # Calculates effective hard loss ceiling based on dollar cap and equity %
+            hard_loss_ceiling = self.hard_max_loss_dollars
+            acc_info = mt5.account_info()
+            if acc_info and self.hard_max_loss_pct > 0:
+                equity_cap = acc_info.equity * (self.hard_max_loss_pct / 100.0)
+                hard_loss_ceiling = max(min(self.hard_max_loss_dollars, equity_cap), 1.00)
+
+            if profit <= -hard_loss_ceiling:
+                open_p = t_data.get("entry_price", open_price)
+                orig_sl = t_data.get("initial_sl", current_sl)
+                intended_risk = t_data.get("risk_distance", abs(open_p - orig_sl)) * volume * 100.0
+                overshoot = abs(profit) - intended_risk
+                diag_msg = (
+                    f"[HARD MAX-LOSS CIRCUIT BREAKER FIX 31] Force-closing Ticket #{ticket} ({p_type})! "
+                    f"Floating loss -${abs(profit):.2f} hit hard ceiling -${hard_loss_ceiling:.2f} | "
+                    f"Entry: {open_p:.2f} | Current: {curr_price:.2f} | Original SL: {orig_sl:.2f} | "
+                    f"Intended Risk: ${intended_risk:.2f} | Slippage/Overshoot: ${overshoot:+.2f}"
                 )
-                self.close_position(ticket, symbol, reason=f"HardLossShield_-${abs(profit):.2f}")
+                logger.critical(f"================================================================")
+                logger.critical(f" {diag_msg}")
+                logger.critical(f"================================================================")
+                self.close_position(ticket, symbol, reason=f"HardMaxLossCut_-${abs(profit):.2f}")
                 continue
 
             # =================================================================
-            # UNIFIED MULTI-TIER PROFIT PROTECTION & RETRACEMENT SHIELD:
-            # 1. Direct Profit Target Closer ($1.00 - $2.00 Instant Market Exit)
-            # 2. Fix 24: Direct Profit Giveback Cap (Max 50% Giveback / Min Peak $0.50)
-            # 3. Early Zero-Loss Profit Lock at +$0.25+ (Guaranteed Green on Broker Server)
-            # 4. Positive Profit Retracement Guard (Never let winning trades turn into losses)
-            # 5. Rollback Protection starting from +$0.75+ (Auto-Close unless continuation assured)
-            # 6. 50% Partial Close at +1.0R (if volume >= 0.02)
-            # 7. Dynamic Continuous Trailing Stop from +0.6R
+            # UNIFIED PROFIT MANAGEMENT & TAKE PROFIT TRAILING:
+            # 1. Guaranteed Green Breakeven at +0.5R (Locks in +$0.25 on Broker Server)
+            # 2. Dynamic Trailing Stop from +0.8R (Trails behind price to let trade reach TP)
+            # 3. 50% Partial Close at 1:1 R:R (for multi-lot volume >= 0.02)
             # =================================================================
 
-            # Step 1: Direct Profit Target Closer (Hitting $1.00 - $2.00 Target Triggers Instant Exit)
-            if profit >= self.auto_tp_target:
-                logger.info(
-                    f"[DIRECT PROFIT TARGET HIT] Ticket #{ticket} reached +${profit:.2f} (Target: +${self.auto_tp_target:.2f}) "
-                    f"-> Closing immediately at market to secure clean profits!"
-                )
-                self.close_position(ticket, symbol, reason=f"DirectProfitTarget_+${profit:.2f}")
-                continue
-            elif profit >= self.auto_tp_min and curr_peak >= (self.auto_tp_min + 0.15) and profit < curr_peak:
-                logger.info(
-                    f"[PROFIT BANKED >= $1.00] Ticket #{ticket} peaked at +${curr_peak:.2f} and stabilized at +${profit:.2f} "
-                    f"-> Closing immediately at market to bank profit!"
-                )
-                self.close_position(ticket, symbol, reason=f"BankProfit_+${profit:.2f}")
-                continue
-
-            # Step 2: Fix 24 Direct Profit Giveback Cap (50% Max Giveback / Min Peak $0.50)
-            # (Closes position immediately at market if profit drops below 50% of peak)
-            if self.giveback_cap_enabled and curr_peak >= self.giveback_min_peak:
-                profit_giveback = curr_peak - profit
-                giveback_pct = (profit_giveback / curr_peak) if curr_peak > 0 else 0.0
-                if giveback_pct >= self.giveback_max_pct or profit <= curr_peak * (1.0 - self.giveback_max_pct):
+            # Step 1: Guaranteed Green Breakeven Lock at +0.5R (or +$0.80)
+            if (r_multiple >= 0.50 or profit >= 0.80) and not t_data.get("be_applied", False):
+                be_lock = max(self.be_offset, 0.20)
+                if p_type == "BUY" and (current_sl < (open_price + be_lock) or current_sl == 0):
+                    new_sl = round(open_price + be_lock, digits)
                     logger.info(
-                        f"[PROFIT GIVEBACK CAP FIX 24] Position #{ticket} ({p_type}) peaked at +${curr_peak:.2f}, "
-                        f"dropped to +${profit:.2f} (Giveback: {giveback_pct*100:.1f}% >= Cap: {self.giveback_max_pct*100:.0f}%, "
-                        f"Retraced: -${profit_giveback:.2f}) -> Closing immediately at market to lock in +${profit:.2f} profit!"
+                        f"[PROFIT BREAKEVEN LOCK] BUY #{ticket} reached +${profit:.2f} ({r_multiple:.2f}R) -> "
+                        f"Moving SL to Guaranteed Green {new_sl:.2f} (+${be_lock:.2f})"
                     )
-                    self.close_position(ticket, symbol, reason=f"GivebackCap_Peaked+${curr_peak:.2f}_Banked+${profit:.2f}")
-                    continue
-
-            # Step 3: Early Zero-Loss Profit Lock starting from +$0.25+ (or +0.25R)
-            if profit >= self.lock_profit_start or r_multiple >= 0.25:
-                if not t_data.get("be_applied", False):
-                    be_lock = max(self.be_offset, 0.15)
-                    if p_type == "BUY" and (current_sl < (open_price + be_lock) or current_sl == 0):
-                        new_sl = round(open_price + be_lock, digits)
-                        logger.info(
-                            f"[PROFIT LOCK >= $0.25] BUY #{ticket} reached +${profit:.2f} (Gain: {r_multiple:.2f}R) -> "
-                            f"Moving SL from {current_sl:.2f} to Guaranteed Green {new_sl:.2f} (+${be_lock:.2f})"
-                        )
-                        if self.update_sl_tp(ticket, symbol, new_sl, current_tp):
-                            t_data["be_applied"] = True
-                            current_sl = new_sl
-                    elif p_type == "SELL" and (current_sl > (open_price - be_lock) or current_sl == 0):
-                        new_sl = round(open_price - be_lock, digits)
-                        logger.info(
-                            f"[PROFIT LOCK >= $0.25] SELL #{ticket} reached +${profit:.2f} (Gain: {r_multiple:.2f}R) -> "
-                            f"Moving SL from {current_sl:.2f} to Guaranteed Green {new_sl:.2f} (+${be_lock:.2f})"
-                        )
-                        if self.update_sl_tp(ticket, symbol, new_sl, current_tp):
-                            t_data["be_applied"] = True
-                            current_sl = new_sl
-
-            # Step 3: Positive Profit Retracement & Zero-Tolerance Reversal Guard
-            # (Rule: A trade that was once in profit must NEVER be allowed to close with a loss)
-            if curr_peak >= self.retrace_guard_min_peak:
-                # Critical Rule: If trade saw +$0.25+ green and profit dropped to <= +$0.02, close immediately!
-                if profit <= 0.02:
+                    if self.update_sl_tp(ticket, symbol, new_sl, current_tp):
+                        t_data["be_applied"] = True
+                        current_sl = new_sl
+                elif p_type == "SELL" and (current_sl > (open_price - be_lock) or current_sl == 0):
+                    new_sl = round(open_price - be_lock, digits)
                     logger.info(
-                        f"[ZERO-LOSS CUT] Ticket #{ticket} saw green (+${curr_peak:.2f}) but dropped to +${profit:.2f} "
-                        f"-> Auto-closing immediately at market to guarantee zero loss!"
+                        f"[PROFIT BREAKEVEN LOCK] SELL #{ticket} reached +${profit:.2f} ({r_multiple:.2f}R) -> "
+                        f"Moving SL to Guaranteed Green {new_sl:.2f} (+${be_lock:.2f})"
                     )
-                    self.close_position(ticket, symbol, reason=f"ZeroLossCut_Peaked+${curr_peak:.2f}_Saved+${profit:.2f}")
-                    continue
+                    if self.update_sl_tp(ticket, symbol, new_sl, current_tp):
+                        t_data["be_applied"] = True
+                        current_sl = new_sl
 
-                # Giveback Guard: If profit drops 35% from peak above $0.40, lock in remaining profit
-                if curr_peak >= 0.40 and profit <= curr_peak * (1.0 - self.retrace_guard_max_giveback):
-                    logger.info(
-                        f"[PROFIT GIVEBACK GUARD] Ticket #{ticket} peaked at +${curr_peak:.2f} but dropped to +${profit:.2f} "
-                        f"(gave back >= {self.retrace_guard_max_giveback*100:.0f}% from peak) -> Closing immediately to bank profit!"
-                    )
-                    self.close_position(ticket, symbol, reason=f"ProfitGivebackGuard_Peaked+${curr_peak:.2f}_Banked+${profit:.2f}")
-                    continue
-
-            # Step 3: Rollback Protection starting from $0.75 and above
-            # (Close if profit starts rolling back/reducing unless market is actively assuring continuation)
-            if curr_peak >= self.rollback_trigger:
-                # Progressive SL Lock: physically locks at least 70% of peak gains into MT5 Stop Loss
-                lock_gain_dollars = max(self.be_offset, curr_peak * 0.70)
-                if p_type == "BUY":
-                    prog_sl = round(open_price + lock_gain_dollars, digits)
-                    if prog_sl > current_sl:
-                        logger.info(
-                            f"[PROGRESSIVE PROFIT LOCK] BUY #{ticket} Peak +${curr_peak:.2f} -> Advancing SL to {prog_sl:.2f} (+${lock_gain_dollars:.2f})"
-                        )
-                        if self.update_sl_tp(ticket, symbol, prog_sl, current_tp):
-                            current_sl = prog_sl
-                elif p_type == "SELL":
-                    prog_sl = round(open_price - lock_gain_dollars, digits)
-                    if current_sl == 0 or prog_sl < current_sl:
-                        logger.info(
-                            f"[PROGRESSIVE PROFIT LOCK] SELL #{ticket} Peak +${curr_peak:.2f} -> Advancing SL to {prog_sl:.2f} (+${lock_gain_dollars:.2f})"
-                        )
-                        if self.update_sl_tp(ticket, symbol, prog_sl, current_tp):
-                            current_sl = prog_sl
-
-                # Rollback Detection from peak
-                profit_reduction = curr_peak - profit
-                is_rolling_back = (profit_reduction >= self.rollback_retrace_tol) or (profit <= curr_peak * (1.0 - self.rollback_giveback_pct))
-
-                if is_rolling_back:
-                    assuring, ass_reason = self.is_market_assuring_continuation(symbol, p_type)
-                    if not assuring:
-                        logger.info(
-                            f"[PROFIT ROLLBACK CLOSER >= $0.75] Ticket #{ticket} peaked at +${curr_peak:.2f} but rolled back to +${profit:.2f} "
-                            f"(-${profit_reduction:.2f}) | Continuation check failed: {ass_reason} -> Closing immediately to bank +${profit:.2f} profit!"
-                        )
-                        self.close_position(ticket, symbol, reason=f"ProfitRollback_Peaked+${curr_peak:.2f}_Banked+${profit:.2f}")
-                        continue
-                    else:
-                        logger.info(
-                            f"[CONTINUATION ASSURED] Ticket #{ticket} profit at +${profit:.2f} (peaked +${curr_peak:.2f}) -> Holding trade: {ass_reason}"
-                        )
-
-            # Step 4: Partial Close 50% Position at 1:1 R:R (for multi-lot trades)
+            # Step 2: Partial Close 50% Position at 1:1 R:R (for volume >= 0.02)
             if r_multiple >= 1.0 and not t_data.get("partial_closed", False):
                 if volume >= 0.02:
                     half_vol = round(volume * 0.5, 2)
-                    success = self.partial_close_position(ticket, symbol, half_vol, reason="PartialClose_1R_50pct")
+                    self.partial_close_position(ticket, symbol, half_vol, reason="PartialClose_1R_50pct")
                     t_data["partial_closed"] = True
                 else:
-                    logger.info(
-                        f"[1:1 R:R HIT] Ticket #{ticket} reached +1.0R (+${profit:.2f}). "
-                        f"Position is {volume} lot (min micro lot), breakeven locked and trailing stop activated."
-                    )
                     t_data["partial_closed"] = True
 
-            # Step 5: Dynamic Continuous Trailing Stop from +0.6R (Scaled to Trade Risk Distance)
+            # Step 3: Dynamic Continuous Trailing Stop from +0.8R (Trails behind price to let trade reach TP)
             if r_multiple >= self.trailing_trigger_r and self.trailing_enabled:
-                trailing_buffer = max(risk_dist * 0.50, self.trailing_dist)
-                be_lock = max(self.be_offset, 0.25)
+                trailing_buffer = max(risk_dist * 0.60, self.trailing_dist, 1.20)
+                be_lock = max(self.be_offset, 0.20)
                 if p_type == "BUY":
                     trail_sl = round(curr_price - trailing_buffer, digits)
                     if trail_sl > current_sl and trail_sl >= (open_price + be_lock):
                         logger.info(
-                            f"[TRAILING STOP] BUY #{ticket} Profit +${profit:.2f} ({r_multiple:.2f}R) -> "
-                            f"Trailing SL moved to {trail_sl:.2f} (buffer: ${trailing_buffer:.2f})"
+                            f"[TRAILING STOP TO TP] BUY #{ticket} Profit +${profit:.2f} ({r_multiple:.2f}R) -> "
+                            f"Trailing SL moved to {trail_sl:.2f} (buffer: ${trailing_buffer:.2f}, TP: {current_tp:.2f})"
                         )
-                        self.update_sl_tp(ticket, symbol, trail_sl, current_tp)
+                        if self.update_sl_tp(ticket, symbol, trail_sl, current_tp):
+                            current_sl = trail_sl
                 elif p_type == "SELL":
                     trail_sl = round(curr_price + trailing_buffer, digits)
                     if (current_sl == 0 or trail_sl < current_sl) and trail_sl <= (open_price - be_lock):
                         logger.info(
-                            f"[TRAILING STOP] SELL #{ticket} Profit +${profit:.2f} ({r_multiple:.2f}R) -> "
-                            f"Trailing SL moved to {trail_sl:.2f} (buffer: ${trailing_buffer:.2f})"
+                            f"[TRAILING STOP TO TP] SELL #{ticket} Profit +${profit:.2f} ({r_multiple:.2f}R) -> "
+                            f"Trailing SL moved to {trail_sl:.2f} (buffer: ${trailing_buffer:.2f}, TP: {current_tp:.2f})"
                         )
-                        self.update_sl_tp(ticket, symbol, trail_sl, current_tp)
+                        if self.update_sl_tp(ticket, symbol, trail_sl, current_tp):
+                            current_sl = trail_sl
 
     def is_market_assuring_continuation(self, symbol: str, p_type: str) -> Tuple[bool, str]:
         """

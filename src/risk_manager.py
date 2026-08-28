@@ -254,7 +254,8 @@ class RiskManager:
 
     def check_circuit_breakers(self, current_equity: float) -> Tuple[bool, str]:
         """
-        Priority 4: Validates daily loss circuit breaker, consecutive loss cooldown, and trade caps.
+        Priority 4 & Fix 30: Validates daily loss circuit breaker, consecutive loss cooldown,
+        daily trade caps, and emergency account equity kill switch.
         Returns: (can_trade: bool, reason: str)
         """
         self.reset_daily_metrics_if_needed(current_equity)
@@ -263,6 +264,24 @@ class RiskManager:
         # Check hard daily trip
         if self.circuit_tripped:
             return False, f"Trading halted for today: {self.trip_reason}"
+
+        # Fix 30: Emergency Account-Wide Equity Kill Switch
+        equity_floor = self.circuit_config.get("equity_floor_dollars", 5.00)
+        equity_drop_limit_pct = self.circuit_config.get("equity_kill_switch_drop_pct", 15.0)
+        if self.daily_start_equity > 0:
+            equity_drawdown_pct = max(0.0, (self.daily_start_equity - current_equity) / self.daily_start_equity * 100.0)
+            if current_equity < equity_floor or equity_drawdown_pct >= equity_drop_limit_pct:
+                self.circuit_tripped = True
+                self.trip_reason = (
+                    f"[EQUITY KILL SWITCH FIX 30] Current Equity ${current_equity:.2f} breached safety floor "
+                    f"(Floor: ${equity_floor:.2f}, Session Drop: -{equity_drawdown_pct:.1f}% >= -{equity_drop_limit_pct:.1f}%)! "
+                    f"Disabling all trading across both modules until manual review."
+                )
+                logger.critical(f"================================================================")
+                logger.critical(f" {self.trip_reason}")
+                logger.critical(f" Trading HARD-HALTED across both modules to protect account.")
+                logger.critical(f"================================================================")
+                return False, self.trip_reason
 
         # Check consecutive loss cooldown
         if now < self.consecutive_loss_cooldown_until:
@@ -303,22 +322,95 @@ class RiskManager:
 
         return True, "OK"
 
-    def check_spread_allowed(self, symbol: str) -> Tuple[bool, int]:
-        """Checks if current spread is within the safety threshold."""
+    def check_spread_allowed(self, symbol: str) -> Tuple[bool, int, str]:
+        """
+        Fix 25: Checks if current spread is within the safety threshold and logs explicit rejection message.
+        """
         info = mt5.symbol_info(symbol)
         if info is None:
-            return False, 9999
+            return False, 9999, "No symbol info"
 
         current_spread = info.spread
-        max_allowed = self.risk_config.get("max_spread_points", 350)
+        max_allowed = self.risk_config.get("max_spread_points", 300)
 
         if current_spread > max_allowed:
-            logger.warning(
-                f"Spread too high on {symbol}: current {current_spread} > max {max_allowed} points. Trade filtered."
-            )
-            return False, current_spread
+            reason = f"Skipped: spread [{current_spread} pts] exceeds max [{max_allowed} pts]."
+            logger.warning(f"[SPREAD FILTER FIX 25] {reason}")
+            return False, current_spread, reason
 
-        return True, current_spread
+        return True, current_spread, "OK"
+
+    def is_in_news_blackout(self) -> Tuple[bool, str]:
+        """
+        Fix 27: Checks whether current UTC time is inside a high-impact USD economic news blackout window.
+        Prevents entry during erratic news spikes (e.g., NFP, CPI, FOMC rate decisions).
+        """
+        if not self.risk_config.get("news_blackout_enabled", True):
+            return False, "News blackout filter disabled"
+
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        before_min = self.risk_config.get("blackout_before_minutes", 10)
+        after_min = self.risk_config.get("blackout_after_minutes", 15)
+
+        # Standard High-Impact USD Macro Event Windows (UTC times: 12:30 UTC for CPI/NFP/GDP/PPI, 14:00 UTC for ISM/PMI, 18:00 UTC for FOMC)
+        # Check weekdays (Monday to Friday: 0 to 4)
+        if now_utc.weekday() <= 4:
+            current_minute_of_day = now_utc.hour * 60 + now_utc.minute
+
+            # Major Macro Windows in UTC minutes:
+            # 12:30 UTC = 750 min (NFP, CPI, Core PPI, Retail Sales, GDP)
+            # 14:00 UTC = 840 min (ISM Manufacturing / Services PMI, Consumer Confidence)
+            # 18:00 UTC = 1080 min (FOMC Statement, Fed Interest Rate Decision)
+            macro_windows = [
+                (750, "US High-Impact Macro (CPI/NFP/GDP/Retail Sales) @ 12:30 UTC"),
+                (840, "US High-Impact ISM/PMI/Consumer Confidence @ 14:00 UTC"),
+                (1080, "US FOMC Statement / Fed Interest Rate Decision @ 18:00 UTC"),
+            ]
+
+            for event_min, event_name in macro_windows:
+                window_start = event_min - before_min
+                window_end = event_min + after_min
+                if window_start <= current_minute_of_day <= window_end:
+                    rem_window = window_end - current_minute_of_day
+                    reason = f"Within high-impact news blackout window ({event_name}, {rem_window} mins remaining in blackout)"
+                    logger.warning(f"[NEWS BLACKOUT FILTER FIX 27] {reason}")
+                    return True, reason
+
+        return False, "Clear of scheduled news windows"
+
+    def get_current_trading_session(self) -> str:
+        """
+        Fix 28: Identifies the active global market trading session by UTC hour.
+        """
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        hour = now_utc.hour
+
+        if 0 <= hour < 7:
+            return "Asian"
+        elif 7 <= hour < 12:
+            return "London"
+        elif 12 <= hour < 16:
+            return "London/NY Overlap"
+        elif 16 <= hour < 21:
+            return "New York"
+        else:
+            return "Late Asian/Off-Hours"
+
+    def is_session_allowed(self) -> Tuple[bool, str, str]:
+        """
+        Fix 28: Validates if current market session is permitted for trade execution.
+        """
+        session_name = self.get_current_trading_session()
+        if not self.risk_config.get("session_filter_enabled", True):
+            return True, session_name, "Session filter disabled"
+
+        allowed = self.risk_config.get("allowed_sessions", ["London", "London/NY Overlap", "New York", "Asian"])
+        if session_name not in allowed:
+            reason = f"Session '{session_name}' not in permitted trading sessions ({allowed})"
+            logger.info(f"[SESSION FILTER FIX 28] {reason}")
+            return False, session_name, reason
+
+        return True, session_name, "OK"
 
     def calculate_lot_size(
         self,

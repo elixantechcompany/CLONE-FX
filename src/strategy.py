@@ -252,8 +252,9 @@ class MusumaliStrategy:
                     if tick.bid > sweep_bar["low"]:
                         continue  # Has not broken the low yet
 
-                    # Freshness: Must be within 0.35 ATR distance of sweep low (No late entries!)
-                    if (sweep_bar["low"] - tick.bid) > (atr_stop_distance * 0.35):
+                    # Freshness: Must be within reasonable ATR breakout distance of sweep low
+                    max_breakout_chase = max(atr_stop_distance * 1.2, 5.00)
+                    if (sweep_bar["low"] - tick.bid) > max_breakout_chase:
                         continue  # Price ran away too far
 
                     # Funnel Stage 4: Musumali candles that got a confirmed break (entry)
@@ -355,8 +356,9 @@ class MusumaliStrategy:
                     if tick.ask < sweep_bar["high"]:
                         continue  # Has not broken the high yet
 
-                    # Freshness: Must be within 0.35 ATR distance of sweep high (No late entries!)
-                    if (tick.ask - sweep_bar["high"]) > (atr_stop_distance * 0.35):
+                    # Freshness: Must be within reasonable ATR breakout distance of sweep high
+                    max_breakout_chase = max(atr_stop_distance * 1.2, 5.00)
+                    if (tick.ask - sweep_bar["high"]) > max_breakout_chase:
                         continue  # Price ran away too far
 
                     # Funnel Stage 4: Musumali candles that got a confirmed break (entry)
