@@ -73,6 +73,11 @@ m1_scalper:
 # DYNAMIC PROFIT MANAGEMENT & RETRACEMENT PROTECTION (UNIFIED)
 # ==============================================================================
 profit_management:
+  # Fix 24: Direct Profit Giveback Cap (50% max giveback / min peak $0.50)
+  giveback_cap_enabled: true
+  giveback_min_peak_dollars: 0.50      # Enforce giveback cap once peak hits $0.50+
+  giveback_max_pct: 0.50               # Close immediately if profit drops 50% from peak
+  
   # Tier 0: Direct Profit Target Closer ($1.00 - $2.00 Automatic Profit Take)
   auto_take_profit_target_dollars: 1.50 # Direct target take profit ($1.50)
   auto_take_profit_min_dollars: 1.00    # Close if profit reaches $1.00+ and stalls

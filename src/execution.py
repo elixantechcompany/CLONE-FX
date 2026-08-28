@@ -28,6 +28,9 @@ class OrderExecutor:
 
         # Dynamic Profit Management Configuration
         profit_cfg = config.get("profit_management", {})
+        self.giveback_cap_enabled = profit_cfg.get("giveback_cap_enabled", True)
+        self.giveback_min_peak = profit_cfg.get("giveback_min_peak_dollars", 0.50)
+        self.giveback_max_pct = profit_cfg.get("giveback_max_pct", 0.50)
         self.auto_tp_target = profit_cfg.get("auto_take_profit_target_dollars", 1.50)
         self.auto_tp_min = profit_cfg.get("auto_take_profit_min_dollars", 1.00)
         self.max_hard_loss = profit_cfg.get("max_hard_loss_per_trade_dollars", 2.50)
@@ -387,6 +390,18 @@ class OrderExecutor:
             curr_peak = max(self.peak_profit.get(ticket, 0.0), profit)
             self.peak_profit[ticket] = curr_peak
 
+            # Fix 23: Explicit Exit-Management Status Logging (Confirming Fix 1 status on every open position)
+            be_active = t_data.get("be_applied", False)
+            partial_active = t_data.get("partial_closed", False)
+            trailing_active = bool(r_multiple >= self.trailing_trigger_r and self.trailing_enabled)
+            giveback_active = bool(self.giveback_cap_enabled and curr_peak >= self.giveback_min_peak)
+
+            logger.info(
+                f"[EXIT STATUS AUDIT FIX 23] Position #{ticket} ({p_type}): floating P&L=${profit:+.2f} ({r_multiple:+.2f}R), "
+                f"peak_profit=+${curr_peak:.2f}, breakeven_active={be_active}, trailing_active={trailing_active}, "
+                f"partial_close_active={partial_active}, giveback_cap_active={giveback_active}"
+            )
+
             # Tier 0: Emergency Hard Loss Shield (Scales to intended SL risk to prevent premature cuts on HTF)
             trade_max_loss = max(self.max_hard_loss, (risk_dist * volume * 100.0) * 1.15)
             if profit <= -trade_max_loss:
@@ -398,13 +413,14 @@ class OrderExecutor:
                 continue
 
             # =================================================================
-            # UNIFIED MULTI-TIER PROFIT PROTECTION & ZERO-LOSS RETRACEMENT SHIELD:
+            # UNIFIED MULTI-TIER PROFIT PROTECTION & RETRACEMENT SHIELD:
             # 1. Direct Profit Target Closer ($1.00 - $2.00 Instant Market Exit)
-            # 2. Early Zero-Loss Profit Lock at +$0.25+ (Guaranteed Green on Broker Server)
-            # 3. Positive Profit Retracement Guard (Never let winning trades turn into losses)
-            # 4. Rollback Protection starting from +$0.75+ (Auto-Close unless continuation assured)
-            # 5. 50% Partial Close at +1.0R (if volume >= 0.02)
-            # 6. Dynamic Continuous Trailing Stop from +0.6R
+            # 2. Fix 24: Direct Profit Giveback Cap (Max 50% Giveback / Min Peak $0.50)
+            # 3. Early Zero-Loss Profit Lock at +$0.25+ (Guaranteed Green on Broker Server)
+            # 4. Positive Profit Retracement Guard (Never let winning trades turn into losses)
+            # 5. Rollback Protection starting from +$0.75+ (Auto-Close unless continuation assured)
+            # 6. 50% Partial Close at +1.0R (if volume >= 0.02)
+            # 7. Dynamic Continuous Trailing Stop from +0.6R
             # =================================================================
 
             # Step 1: Direct Profit Target Closer (Hitting $1.00 - $2.00 Target Triggers Instant Exit)
@@ -423,7 +439,21 @@ class OrderExecutor:
                 self.close_position(ticket, symbol, reason=f"BankProfit_+${profit:.2f}")
                 continue
 
-            # Step 2: Early Zero-Loss Profit Lock starting from +$0.25+ (or +0.25R)
+            # Step 2: Fix 24 Direct Profit Giveback Cap (50% Max Giveback / Min Peak $0.50)
+            # (Closes position immediately at market if profit drops below 50% of peak)
+            if self.giveback_cap_enabled and curr_peak >= self.giveback_min_peak:
+                profit_giveback = curr_peak - profit
+                giveback_pct = (profit_giveback / curr_peak) if curr_peak > 0 else 0.0
+                if giveback_pct >= self.giveback_max_pct or profit <= curr_peak * (1.0 - self.giveback_max_pct):
+                    logger.info(
+                        f"[PROFIT GIVEBACK CAP FIX 24] Position #{ticket} ({p_type}) peaked at +${curr_peak:.2f}, "
+                        f"dropped to +${profit:.2f} (Giveback: {giveback_pct*100:.1f}% >= Cap: {self.giveback_max_pct*100:.0f}%, "
+                        f"Retraced: -${profit_giveback:.2f}) -> Closing immediately at market to lock in +${profit:.2f} profit!"
+                    )
+                    self.close_position(ticket, symbol, reason=f"GivebackCap_Peaked+${curr_peak:.2f}_Banked+${profit:.2f}")
+                    continue
+
+            # Step 3: Early Zero-Loss Profit Lock starting from +$0.25+ (or +0.25R)
             if profit >= self.lock_profit_start or r_multiple >= 0.25:
                 if not t_data.get("be_applied", False):
                     be_lock = max(self.be_offset, 0.15)
