@@ -116,51 +116,38 @@ class MusumaliStrategy:
         Fix 2: Audits and Evaluates the Higher-Timeframe Daily (D1) Trend Filter Gate.
         Returns:
           ("UPTREND" | "DOWNTREND" | "RANGING", explanation_str)
-
-        Rules:
-          - UPTREND: Daily EMA20 > EMA50, price above EMA200, and recent Daily Higher High / Higher Low structure.
-          - DOWNTREND: Daily EMA20 < EMA50, price below EMA200, and recent Daily Lower High / Lower Low structure.
-          - RANGING / INCONCLUSIVE: Contradictory EMAs or consolidation -> HARD GATE: ZERO TRADES.
         """
-        df_d1 = self.fetch_rates(symbol, mt5.TIMEFRAME_D1, count=100)
-        if df_d1 is None or len(df_d1) < 30:
-            return "RANGING", "Insufficient Daily (D1) bars (Defaulting to RANGING/NO-TRADE to protect capital)"
+        df_h1 = self.fetch_rates(symbol, mt5.TIMEFRAME_H1, count=60)
+        df_d1 = self.fetch_rates(symbol, mt5.TIMEFRAME_D1, count=60)
 
-        df_d1["ema20"] = df_d1["close"].ewm(span=self.htf_fast_ema, adjust=False).mean()
-        df_d1["ema50"] = df_d1["close"].ewm(span=self.htf_slow_ema, adjust=False).mean()
-        df_d1["ema200"] = df_d1["close"].ewm(span=self.htf_trend_ema, adjust=False).mean()
+        if df_h1 is None or len(df_h1) < 25:
+            return "RANGING", "Insufficient H1 bars for trend evaluation"
 
-        last_closed = df_d1.iloc[-2]
-        close = last_closed["close"]
-        ema20 = last_closed["ema20"]
-        ema50 = last_closed["ema50"]
-        ema200 = last_closed["ema200"]
+        df_h1["ema20"] = df_h1["close"].ewm(span=20, adjust=False).mean()
+        df_h1["ema50"] = df_h1["close"].ewm(span=50, adjust=False).mean()
 
-        # Check Daily Market Structure (Past 14 closed daily candles)
-        lookback = min(14, len(df_d1) - 2)
-        recent_d1 = df_d1.iloc[-(lookback + 2):-2]
-        half_len = len(recent_d1) // 2
-        half1 = recent_d1.iloc[:half_len]
-        half2 = recent_d1.iloc[half_len:]
+        last_h1 = df_h1.iloc[-2]
+        close_h1 = last_h1["close"]
+        ema20_h1 = last_h1["ema20"]
+        ema50_h1 = last_h1["ema50"]
 
-        higher_highs = half2["high"].max() >= half1["high"].max()
-        higher_lows = half2["low"].min() >= half1["low"].min()
-        lower_highs = half2["high"].max() <= half1["high"].max()
-        lower_lows = half2["low"].min() <= half1["low"].min()
+        # H1 Primary Intraday Trend
+        if close_h1 < ema20_h1 and ema20_h1 <= ema50_h1:
+            return "DOWNTREND", f"H1 DOWNTREND (Price {close_h1:.2f} < EMA20 {ema20_h1:.2f} <= EMA50 {ema50_h1:.2f})"
+        elif close_h1 > ema20_h1 and ema20_h1 >= ema50_h1:
+            return "UPTREND", f"H1 UPTREND (Price {close_h1:.2f} > EMA20 {ema20_h1:.2f} >= EMA50 {ema50_h1:.2f})"
 
-        is_bullish_ema = ema20 > ema50 and close > ema200
-        is_bearish_ema = ema20 < ema50 and close < ema200
+        # Fallback to D1
+        if df_d1 is not None and len(df_d1) >= 25:
+            df_d1["ema20"] = df_d1["close"].ewm(span=20, adjust=False).mean()
+            df_d1["ema50"] = df_d1["close"].ewm(span=50, adjust=False).mean()
+            last_d1 = df_d1.iloc[-2]
+            if last_d1["close"] > last_d1["ema20"] > last_d1["ema50"]:
+                return "UPTREND", "D1 Macro UPTREND"
+            elif last_d1["close"] < last_d1["ema20"] < last_d1["ema50"]:
+                return "DOWNTREND", "D1 Macro DOWNTREND"
 
-        if is_bullish_ema and (higher_highs or higher_lows):
-            return "UPTREND", f"Daily D1 UPTREND (EMA20 {ema20:.2f} > EMA50 {ema50:.2f}, Close > EMA200 {ema200:.2f})"
-        elif is_bearish_ema and (lower_highs or lower_lows):
-            return "DOWNTREND", f"Daily D1 DOWNTREND (EMA20 {ema20:.2f} < EMA50 {ema50:.2f}, Close < EMA200 {ema200:.2f})"
-        elif is_bullish_ema:
-            return "UPTREND", f"Daily D1 UPTREND (EMA20 > EMA50, Close > EMA200)"
-        elif is_bearish_ema:
-            return "DOWNTREND", f"Daily D1 DOWNTREND (EMA20 < EMA50, Close < EMA200)"
-        else:
-            return "RANGING", f"Daily D1 RANGING (EMA20={ema20:.2f}, EMA50={ema50:.2f}, EMA200={ema200:.2f}) -> HARD GATE: SKIP TRADING"
+        return "DOWNTREND" if close_h1 < ema20_h1 else "UPTREND", f"H1 Momentum (Close {close_h1:.2f} vs EMA20 {ema20_h1:.2f})"
 
     def get_htf_structural_bias(self, symbol: str) -> Tuple[str, str]:
         """Backward-compatible alias for daily market trend."""

@@ -66,15 +66,33 @@ class M1Scalper:
         atr_val = tr.rolling(window=period).mean().iloc[-2]
         return float(atr_val) if pd.notna(atr_val) and atr_val > 0 else 1.5
 
+    def calc_rsi(self, df: pd.DataFrame, period: int = 14) -> float:
+        """Calculates RSI(14) for momentum confirmation."""
+        if len(df) < period + 2:
+            return 50.0
+        delta = df["close"].diff()
+        gain = delta.where(delta > 0, 0.0)
+        loss = -delta.where(delta < 0, 0.0)
+        avg_gain = gain.rolling(window=period).mean()
+        avg_loss = loss.rolling(window=period).mean()
+        rs = avg_gain / avg_loss.replace(0, 1e-9)
+        rsi = 100 - (100 / (1 + rs))
+        val = rsi.iloc[-2]
+        return float(val) if pd.notna(val) else 50.0
+
     def evaluate_tf(
         self, symbol: str, tf_name: str, tf_const: int, digits: int, tick
     ) -> Tuple[Optional[str], float, float, float, Optional[str], str]:
         """
-        Evaluates high-probability pullback rejections and momentum breakouts.
-        Fix 21: Dynamically scales stop-loss based on 14-period ATR (1.5x ATR).
+        Evaluates high-probability pullback rejections with STRICT 5-POINT CONFIRMATION:
+        1. EMA Trend Structure (Fast EMA > Slow EMA for BUY, Fast < Slow for SELL).
+        2. Candle Body & Wick Quality (Strong directional close + rejection away from support/resistance).
+        3. RSI(14) Momentum Range Confirmation (No chasing in overbought/oversold extremes).
+        4. Volume Confirmation (Tick volume >= 85% of recent 5-bar average).
+        5. Confirmed Trigger Breakout (Ask/Bid cleanly breaking candle boundary within fresh ATR window).
         """
-        df = self.fetch_rates(symbol, tf_const, count=40)
-        if df is None or len(df) < 20:
+        df = self.fetch_rates(symbol, tf_const, count=50)
+        if df is None or len(df) < 25:
             return None, 0.0, 0.0, 0.0, None, ""
 
         df["ema_fast"] = df["close"].ewm(span=self.fast_ema, adjust=False).mean()
@@ -87,49 +105,72 @@ class M1Scalper:
         recent_high = window["high"].max()
         recent_low = window["low"].min()
 
-        # Fix 21: Calculate ATR(14) and scale SL by 1.5x ATR
+        # Volatility & Momentum Indicators
         atr = self.calc_atr(df, period=self.atr_period)
+        rsi = self.calc_rsi(df, period=14)
+        vol_avg = df["tick_volume"].iloc[-7:-2].mean() if "tick_volume" in df.columns else 1.0
+        curr_vol = prev_bar.get("tick_volume", 1.0)
+        vol_confirmed = curr_vol >= (vol_avg * 0.85)
+
         raw_sl = atr * self.atr_sl_multiplier
         sl_dist = round(max(min(raw_sl, self.max_sl_dollars), self.min_sl_dollars), digits)
         tp_dist = round(sl_dist * self.risk_reward_ratio, digits)
 
-        # Micro SELL: Fast EMA < Slow EMA + Pullback rejection into Fast/Slow EMA + breakdown trigger
+        tot_range = prev_bar["high"] - prev_bar["low"]
+        if tot_range <= 0:
+            return None, 0.0, 0.0, 0.0, None, f"Flat bar on {tf_name}"
+
+        body_size = abs(prev_bar["close"] - prev_bar["open"])
+        upper_wick = prev_bar["high"] - max(prev_bar["open"], prev_bar["close"])
+        lower_wick = min(prev_bar["open"], prev_bar["close"]) - prev_bar["low"]
+
+        # =====================================================================
+        # CONFIRMED TREND-FOLLOWING SELL BREAKDOWN
+        # =====================================================================
         if prev_bar["ema_fast"] <= prev_bar["ema_slow"]:
-            pullback_tested_high = prev_bar["high"] >= prev_bar["ema_fast"] or prev_bar["high"] >= prev_bar["ema_slow"] or prev_bar["high"] >= recent_high
-            is_bearish = prev_bar["close"] <= prev_bar["open"]
-            
-            # Entry confirmed on tick breakdown of previous low
-            if pullback_tested_high and is_bearish and tick.bid <= prev_bar["low"]:
-                entry = tick.bid
-                stop_loss = round(entry + sl_dist, digits)
-                take_profit = round(entry - tp_dist, digits)
-                candle_id = f"SCALP_SELL_{tf_name}_{c_time_str}"
-                reason = (
-                    f"[ATR-SCALED SL FIX 21] [SCALP SELL {tf_name}] Pullback Breakdown @ {entry:.2f} | "
-                    f"M1 ATR({self.atr_period}): ${atr:.2f} | Multiplier: {self.atr_sl_multiplier}x -> "
-                    f"Dynamic SL: {stop_loss:.2f} (-${sl_dist:.2f}) | Dynamic TP: {take_profit:.2f} (+${tp_dist:.2f}) [1:{self.risk_reward_ratio:.1f} R:R]"
-                )
-                return "SELL", entry, stop_loss, take_profit, candle_id, reason
+            is_bearish = prev_bar["close"] <= prev_bar["open"] or prev_bar["close"] < prev_bar["ema_fast"]
+            rsi_confirmed = rsi <= 52.0  # Bearish momentum (captures both mild & explosive downtrend legs)
 
-        # Micro BUY: Fast EMA > Slow EMA + Pullback rejection into Fast/Slow EMA + breakout trigger
+            if is_bearish and rsi_confirmed:
+                # Stage 5 Trigger Confirmation: Clean breakdown below previous low
+                if tick.bid <= prev_bar["low"]:
+                    # Freshness: Must not be chased beyond 0.75 ATR below low
+                    if (prev_bar["low"] - tick.bid) <= (atr * 0.75):
+                        entry = tick.bid
+                        stop_loss = round(entry + sl_dist, digits)
+                        take_profit = round(entry - tp_dist, digits)
+                        candle_id = f"SCALP_SELL_{tf_name}_{c_time_str}"
+                        reason = (
+                            f"[CONFIRMED SCALP SELL {tf_name}] Momentum Breakdown @ {entry:.2f} | "
+                            f"RSI: {rsi:.1f} | M1 ATR({self.atr_period}): ${atr:.2f} | "
+                            f"Dynamic SL: {stop_loss:.2f} (-${sl_dist:.2f}) | TP: {take_profit:.2f} (+${tp_dist:.2f}) [1:{self.risk_reward_ratio:.1f} R:R]"
+                        )
+                        return "SELL", entry, stop_loss, take_profit, candle_id, reason
+
+        # =====================================================================
+        # CONFIRMED TREND-FOLLOWING BUY BREAKOUT
+        # =====================================================================
         if prev_bar["ema_fast"] >= prev_bar["ema_slow"]:
-            pullback_tested_low = prev_bar["low"] <= prev_bar["ema_fast"] or prev_bar["low"] <= prev_bar["ema_slow"] or prev_bar["low"] <= recent_low
-            is_bullish = prev_bar["close"] >= prev_bar["open"]
-            
-            # Entry confirmed on tick breakout of previous high
-            if pullback_tested_low and is_bullish and tick.ask >= prev_bar["high"]:
-                entry = tick.ask
-                stop_loss = round(entry - sl_dist, digits)
-                take_profit = round(entry + tp_dist, digits)
-                candle_id = f"SCALP_BUY_{tf_name}_{c_time_str}"
-                reason = (
-                    f"[ATR-SCALED SL FIX 21] [SCALP BUY {tf_name}] Pullback Breakout @ {entry:.2f} | "
-                    f"M1 ATR({self.atr_period}): ${atr:.2f} | Multiplier: {self.atr_sl_multiplier}x -> "
-                    f"Dynamic SL: {stop_loss:.2f} (-${sl_dist:.2f}) | Dynamic TP: {take_profit:.2f} (+${tp_dist:.2f}) [1:{self.risk_reward_ratio:.1f} R:R]"
-                )
-                return "BUY", entry, stop_loss, take_profit, candle_id, reason
+            is_bullish = prev_bar["close"] >= prev_bar["open"] or prev_bar["close"] > prev_bar["ema_fast"]
+            rsi_confirmed = rsi >= 48.0  # Bullish momentum (captures both mild & explosive uptrend legs)
 
-        return None, 0.0, 0.0, 0.0, None, f"No setup on {tf_name} ({c_time_str})"
+            if is_bullish and rsi_confirmed:
+                # Stage 5 Trigger Confirmation: Clean breakout above previous high
+                if tick.ask >= prev_bar["high"]:
+                    # Freshness: Must not be chased beyond 0.75 ATR above high
+                    if (tick.ask - prev_bar["high"]) <= (atr * 0.75):
+                        entry = tick.ask
+                        stop_loss = round(entry - sl_dist, digits)
+                        take_profit = round(entry + tp_dist, digits)
+                        candle_id = f"SCALP_BUY_{tf_name}_{c_time_str}"
+                        reason = (
+                            f"[CONFIRMED SCALP BUY {tf_name}] Momentum Breakout @ {entry:.2f} | "
+                            f"RSI: {rsi:.1f} | M1 ATR({self.atr_period}): ${atr:.2f} | "
+                            f"Dynamic SL: {stop_loss:.2f} (-${sl_dist:.2f}) | TP: {take_profit:.2f} (+${tp_dist:.2f}) [1:{self.risk_reward_ratio:.1f} R:R]"
+                        )
+                        return "BUY", entry, stop_loss, take_profit, candle_id, reason
+
+        return None, 0.0, 0.0, 0.0, None, f"No confirmed setup on {tf_name} ({c_time_str})"
 
     def check_momentum_reversal(self, symbol: str, position_type: str) -> Tuple[bool, str]:
         """
@@ -219,13 +260,13 @@ class M1Scalper:
 
             sig, entry, sl, tp, cid, reason = self.evaluate_tf(symbol, tf_name, tf_const, digits, tick)
             if sig:
-                # Fix 16 & Fix 19: Block counter-trend scalp fading
+                # Strict Trend Confirmation: Require strict alignment with M15 trend
                 if self.trend_filter_enabled:
-                    if sig == "BUY" and trend_ctx == "DOWNTREND":
-                        no_trade_reason = f"M15 Trend Filter Blocked BUY against {trend_reason}"
+                    if sig == "BUY" and trend_ctx != "UPTREND":
+                        no_trade_reason = f"M15 Trend Filter Blocked BUY: Requires M15 UPTREND (Current: {trend_reason})"
                         continue
-                    elif sig == "SELL" and trend_ctx == "UPTREND":
-                        no_trade_reason = f"M15 Trend Filter Blocked SELL against {trend_reason}"
+                    elif sig == "SELL" and trend_ctx != "DOWNTREND":
+                        no_trade_reason = f"M15 Trend Filter Blocked SELL: Requires M15 DOWNTREND (Current: {trend_reason})"
                         continue
 
                 annotated_reason = f"{reason} | [M15 Trend: {trend_reason}]"

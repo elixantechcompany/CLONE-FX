@@ -51,23 +51,23 @@ m1_scalper:
   enabled: true
   bidirectional: true              # Take both BUY and SELL micro-pullback breakouts on M1
   require_daily_trend_alignment: false # Decoupled from macro Daily gate
-  trend_filter_enabled: true       # Fix 16: Lightweight M15 trend filter
+  trend_filter_enabled: true       # Strict M15 trend filter
   trend_timeframe: "M15"           # Check M15 EMA20 trend context
   trend_ema_period: 20
   trend_slope_bars: 3
   magic_number: 1001               # Fix 10: Unique Magic Number for M1_Scalp
   timeframes: ["M1"]               # Scalper strictly operates on M1
-  max_concurrent_scalp: 3
+  max_concurrent_scalp: 1          # Micro-account: Max 1 scalper position
   fast_ema: 7
   slow_ema: 16
   sweep_lookback_bars: 8
   
-  # Fix 21: ATR-Scaled Dynamic Stop Loss on M1
+  # Strict 5-Point Confirmation & ATR-Scaled Risk
   atr_period: 14                   # 14-period ATR on M1
   atr_sl_multiplier: 1.5           # 1.5x ATR stop-loss distance
   risk_reward_ratio: 2.0           # 1:2 R:R target (3.0x ATR take-profit)
   min_sl_dollars: 1.20             # Floor to cover Gold spread noise
-  max_loss_dollars: 6.00           # Scalp volatility ceiling
+  max_loss_dollars: 2.20           # Scalp risk ceiling ($2.20 max)
 
 # ==============================================================================
 # DYNAMIC PROFIT MANAGEMENT & RETRACEMENT PROTECTION (UNIFIED)
@@ -97,9 +97,9 @@ profit_management:
 harmony_rules:
   prevent_opposing_trades: false   # Fix 11: Net exposure logging active, optional hard block
   max_opposing_lot_exposure: 0.05  # Fix 11: Cap max opposing lot exposure
-  total_max_open_positions: 1      # Micro-Account Protection: Max 1 trade at a time to prevent stacking
-  max_musumali_positions: 1        # Max 1 Musumali trade
-  max_scalper_positions: 1         # Max 1 Scalper trade
+  total_max_open_positions: 3      # High-performance limit (up to 3 confirmed trades)
+  max_musumali_positions: 2        # Max 2 Musumali trades
+  max_scalper_positions: 2         # Max 2 Scalper trades
   cooldown_seconds_per_trade: 0    # Fix 5: Continuous 24/5 candle scanning
 
 risk_management:
