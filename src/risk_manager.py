@@ -34,15 +34,15 @@ class RiskManager:
 
         # Consecutive Loss Cooling
         self.consecutive_losses: int = 0
-        self.max_consecutive_losses = self.circuit_config.get("max_consecutive_losses", 3)
-        self.consecutive_loss_cooldown_minutes = self.circuit_config.get("consecutive_loss_cooldown_minutes", 60)
+        self.max_consecutive_losses = self.circuit_config.get("max_consecutive_losses", 5)
+        self.consecutive_loss_cooldown_minutes = self.circuit_config.get("circuit_breaker_cooldown_minutes", 3)
         self.consecutive_loss_cooldown_until: float = 0.0
 
         # Priority 3: Liquidity Zone Failure Memory & Cooldown
         self.zone_failures: Dict[float, int] = {}
         self.zone_cooldown_until: Dict[float, float] = {}
         self.max_zone_failures = self.zone_config.get("max_zone_failures", 2)
-        self.zone_cooldown_minutes = self.zone_config.get("zone_cooldown_minutes", 15)
+        self.zone_cooldown_minutes = self.zone_config.get("zone_cooldown_minutes", 10)
 
         # Fix 10 & 13: Magic Numbers & Independent Daily Performance Tracking per Module
         self.magic_scalper = config.get("m1_scalper", {}).get("magic_number", 1001)
@@ -55,9 +55,9 @@ class RiskManager:
         self.daily_wins_musumali: int = 0
 
         # Fix 17: Per-Module Consecutive-Loss Circuit Breakers
-        self.consecutive_loss_threshold = self.circuit_config.get("max_consecutive_losses", 3)
-        self.consecutive_loss_window_seconds = self.circuit_config.get("consecutive_loss_window_minutes", 30) * 60.0
-        self.circuit_breaker_cooldown_seconds = self.circuit_config.get("circuit_breaker_cooldown_minutes", 20) * 60.0
+        self.consecutive_loss_threshold = self.circuit_config.get("max_consecutive_losses", 5)
+        self.consecutive_loss_window_seconds = self.circuit_config.get("consecutive_loss_window_minutes", 20) * 60.0
+        self.circuit_breaker_cooldown_seconds = self.circuit_config.get("circuit_breaker_cooldown_minutes", 3) * 60.0
         self.module_consecutive_losses: Dict[int, int] = {
             self.magic_scalper: 0,
             self.magic_musumali: 0,

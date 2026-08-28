@@ -439,8 +439,9 @@ class OrderExecutor:
             # =================================================================
             # UNIFIED PROFIT MANAGEMENT & TAKE PROFIT TRAILING:
             # 1. Guaranteed Green Breakeven at +0.5R (Locks in +$0.25 on Broker Server)
-            # 2. Dynamic Trailing Stop from +0.8R (Trails behind price to let trade reach TP)
+            # 2. Fix 24: Direct Profit Giveback Cap (Max 40% Giveback once Peak >= $0.80)
             # 3. 50% Partial Close at 1:1 R:R (for multi-lot volume >= 0.02)
+            # 4. Dynamic Continuous Trailing Stop from +0.8R (Volatility-Aware ATR Trailing)
             # =================================================================
 
             # Step 1: Guaranteed Green Breakeven Lock at +0.5R (or +$0.80)
@@ -465,7 +466,20 @@ class OrderExecutor:
                         t_data["be_applied"] = True
                         current_sl = new_sl
 
-            # Step 2: Partial Close 50% Position at 1:1 R:R (for volume >= 0.02)
+            # Step 2: Fix 24 Direct Profit Giveback Cap (Retains >= 60% of peak gains once peak >= $0.80)
+            if self.giveback_cap_enabled and curr_peak >= self.giveback_min_peak:
+                profit_giveback = curr_peak - profit
+                giveback_pct = (profit_giveback / curr_peak) if curr_peak > 0 else 0.0
+                if giveback_pct >= self.giveback_max_pct or profit <= curr_peak * (1.0 - self.giveback_max_pct):
+                    logger.info(
+                        f"[PROFIT GIVEBACK CAP FIX 24] Position #{ticket} ({p_type}) peaked at +${curr_peak:.2f}, "
+                        f"dropped to +${profit:.2f} (Giveback: {giveback_pct*100:.1f}% >= Cap: {self.giveback_max_pct*100:.0f}%, "
+                        f"Retraced: -${profit_giveback:.2f}) -> Closing immediately at market to lock in +${profit:.2f} profit!"
+                    )
+                    self.close_position(ticket, symbol, reason=f"GivebackCap_Peaked+${curr_peak:.2f}_Banked+${profit:.2f}")
+                    continue
+
+            # Step 3: Partial Close 50% Position at 1:1 R:R (for volume >= 0.02)
             if r_multiple >= 1.0 and not t_data.get("partial_closed", False):
                 if volume >= 0.02:
                     half_vol = round(volume * 0.5, 2)
