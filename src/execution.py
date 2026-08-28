@@ -474,16 +474,28 @@ class OrderExecutor:
                 else:
                     t_data["partial_closed"] = True
 
-            # Step 3: Dynamic Continuous Trailing Stop from +0.8R (Trails behind price to let trade reach TP)
+            # Step 3: Dynamic Continuous Trailing Stop from +0.8R (Volatility-Aware ATR Trailing to let big winners run)
             if r_multiple >= self.trailing_trigger_r and self.trailing_enabled:
-                trailing_buffer = max(risk_dist * 0.60, self.trailing_dist, 1.20)
+                # Volatility-Aware Trailing Distance: Widens dynamically with market ATR
+                rates_m15 = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M15, 0, 15)
+                live_atr = 2.00
+                if rates_m15 is not None and len(rates_m15) >= 14:
+                    df_atr = pd.DataFrame(rates_m15)
+                    tr = pd.concat([
+                        df_atr["high"] - df_atr["low"],
+                        abs(df_atr["high"] - df_atr["close"].shift(1)),
+                        abs(df_atr["low"] - df_atr["close"].shift(1))
+                    ], axis=1).max(axis=1)
+                    live_atr = float(tr.tail(14).mean())
+
+                trailing_buffer = round(max(risk_dist * 0.60, live_atr * 0.75, self.trailing_dist, 1.20), digits)
                 be_lock = max(self.be_offset, 0.20)
                 if p_type == "BUY":
                     trail_sl = round(curr_price - trailing_buffer, digits)
                     if trail_sl > current_sl and trail_sl >= (open_price + be_lock):
                         logger.info(
-                            f"[TRAILING STOP TO TP] BUY #{ticket} Profit +${profit:.2f} ({r_multiple:.2f}R) -> "
-                            f"Trailing SL moved to {trail_sl:.2f} (buffer: ${trailing_buffer:.2f}, TP: {current_tp:.2f})"
+                            f"[VOLATILITY TRAILING STOP] BUY #{ticket} Profit +${profit:.2f} ({r_multiple:.2f}R) -> "
+                            f"Trailing SL moved to {trail_sl:.2f} (ATR({live_atr:.2f}) buffer: ${trailing_buffer:.2f}, TP: {current_tp:.2f})"
                         )
                         if self.update_sl_tp(ticket, symbol, trail_sl, current_tp):
                             current_sl = trail_sl
@@ -491,8 +503,8 @@ class OrderExecutor:
                     trail_sl = round(curr_price + trailing_buffer, digits)
                     if (current_sl == 0 or trail_sl < current_sl) and trail_sl <= (open_price - be_lock):
                         logger.info(
-                            f"[TRAILING STOP TO TP] SELL #{ticket} Profit +${profit:.2f} ({r_multiple:.2f}R) -> "
-                            f"Trailing SL moved to {trail_sl:.2f} (buffer: ${trailing_buffer:.2f}, TP: {current_tp:.2f})"
+                            f"[VOLATILITY TRAILING STOP] SELL #{ticket} Profit +${profit:.2f} ({r_multiple:.2f}R) -> "
+                            f"Trailing SL moved to {trail_sl:.2f} (ATR({live_atr:.2f}) buffer: ${trailing_buffer:.2f}, TP: {current_tp:.2f})"
                         )
                         if self.update_sl_tp(ticket, symbol, trail_sl, current_tp):
                             current_sl = trail_sl

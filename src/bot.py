@@ -177,8 +177,8 @@ class GoldTradingBot:
         all_positions: List[dict],
     ) -> Tuple[bool, str]:
         """
-        Fix 11: Monitors, audits, and logs directional conflicts between M1_Scalp and Musumali_Sweep.
-        Provides full visibility into net exposure at all times without silent conflicts.
+        Fix 11 & Fix 33: Audits directional conflicts. A new opposite-direction signal does NOT
+        close existing positions; existing positions are left running and the new signal is evaluated independently.
         """
         opposing_type = "SELL" if new_sig == "BUY" else "BUY"
         opposing_positions = [p for p in all_positions if p["type"] == opposing_type]
@@ -189,15 +189,17 @@ class GoldTradingBot:
 
         if opposing_positions:
             other_vol = sum(p["volume"] for p in opposing_positions)
-            self.logger.warning(
-                f"[MODULE OPPOSITION AUDIT FIX 11] {module_name} {new_sig} ({new_lots:.2f} lots) triggered while opposite "
-                f"positions are open ({other_vol:.2f} lots {opposing_type})! "
-                f"Net Exposure: {total_long:.2f}L / {total_short:.2f}S (Net Delta: {net_delta:+.2f} lots)"
+            opp_tickets = [str(p["ticket"]) for p in opposing_positions]
+            # Fix 33: Explicit Audit Logging per Directive Part 12
+            self.logger.info(
+                f"[OPPOSING SIGNAL AUDIT FIX 33] New {new_sig} signal detected while {opposing_type} "
+                f"position #{','.join(opp_tickets)} ({other_vol:.2f} lots) open — existing position left running, "
+                f"new signal evaluated independently."
             )
             max_conflict_lots = self.harmony_cfg.get("max_opposing_lot_exposure", 0.05)
             prevent_opposing = self.harmony_cfg.get("prevent_opposing_trades", False)
             if prevent_opposing or abs(net_delta) > max_conflict_lots:
-                return False, f"Opposing exposure limit exceeded ({other_vol:.2f} lots opposing, Net Delta: {net_delta:+.2f})"
+                return False, f"Opposing exposure limit reached ({other_vol:.2f} lots opposing, Net Delta: {net_delta:+.2f})"
 
         return True, "OK"
 
