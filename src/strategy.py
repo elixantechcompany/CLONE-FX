@@ -62,9 +62,10 @@ class MusumaliStrategy:
 
         # Dynamic ATR Parameters
         self.atr_period = self.strat_cfg.get("atr_period", 14)
-        self.atr_sl_multiplier = self.strat_cfg.get("atr_sl_multiplier", 1.0)
-        self.min_sl_distance = self.strat_cfg.get("min_sl_distance_dollars", 0.60)
-        self.max_sl_distance = self.strat_cfg.get("max_sl_distance_dollars", 1.00)
+        self.atr_sl_multiplier = self.strat_cfg.get("atr_sl_multiplier", 1.5)
+        self.min_sl_distance = self.strat_cfg.get("min_sl_distance_dollars", 2.00)
+        self.max_sl_distance = self.strat_cfg.get("max_sl_distance_dollars", 15.00)
+        self.require_htf_alignment = self.strat_cfg.get("require_htf_alignment", False)
 
         # Fix 2: Higher Timeframe (Daily D1) Trend Filter Gate Parameters
         self.trend_tf_str = self.strat_cfg.get("htf_timeframe", "D1")
@@ -186,8 +187,10 @@ class MusumaliStrategy:
         atr_stop_distance = max(min(atr * self.atr_sl_multiplier, self.max_sl_distance), self.min_sl_distance)
         take_profit_distance = atr_stop_distance * self.risk_reward_ratio
 
-        # Evaluate last 2 closed candles to catch fresh sweeps
-        for offset in [-2, -3]:
+        # Evaluate last 6 closed candles to catch active session sweeps
+        for offset in [-2, -3, -4, -5, -6, -7]:
+            if abs(offset) >= len(df):
+                continue
             sweep_bar = df.iloc[offset]
             c_time_str = str(sweep_bar["time"])
             tot_range = sweep_bar["high"] - sweep_bar["low"]
@@ -233,8 +236,8 @@ class MusumaliStrategy:
                         self.funnel.seen_events.add(musumali_key)
                         self.funnel.valid_musumali_candles += 1
 
-                    # FIX 2 HARD TREND GATE: SELL ONLY ALLOWED IN DOWNTREND
-                    if daily_trend != "DOWNTREND":
+                    # Trend Alignment Check
+                    if self.require_htf_alignment and daily_trend != "DOWNTREND":
                         continue
 
                     tick = mt5.symbol_info_tick(symbol)
@@ -249,8 +252,8 @@ class MusumaliStrategy:
                     if tick.bid > sweep_bar["low"]:
                         continue  # Has not broken the low yet
 
-                    # Freshness: Must be within 1.0 ATR distance of sweep low
-                    if (sweep_bar["low"] - tick.bid) > (atr_stop_distance * 1.0):
+                    # Freshness: Must be within 0.35 ATR distance of sweep low (No late entries!)
+                    if (sweep_bar["low"] - tick.bid) > (atr_stop_distance * 0.35):
                         continue  # Price ran away too far
 
                     # Funnel Stage 4: Musumali candles that got a confirmed break (entry)
@@ -336,8 +339,8 @@ class MusumaliStrategy:
                         self.funnel.seen_events.add(musumali_key)
                         self.funnel.valid_musumali_candles += 1
 
-                    # FIX 2 HARD TREND GATE: BUY ONLY ALLOWED IN UPTREND
-                    if daily_trend != "UPTREND":
+                    # Trend Alignment Check
+                    if self.require_htf_alignment and daily_trend != "UPTREND":
                         continue
 
                     tick = mt5.symbol_info_tick(symbol)
@@ -352,8 +355,8 @@ class MusumaliStrategy:
                     if tick.ask < sweep_bar["high"]:
                         continue  # Has not broken the high yet
 
-                    # Freshness: Must be within 1.0 ATR distance of sweep high
-                    if (tick.ask - sweep_bar["high"]) > (atr_stop_distance * 1.0):
+                    # Freshness: Must be within 0.35 ATR distance of sweep high (No late entries!)
+                    if (tick.ask - sweep_bar["high"]) > (atr_stop_distance * 0.35):
                         continue  # Price ran away too far
 
                     # Funnel Stage 4: Musumali candles that got a confirmed break (entry)

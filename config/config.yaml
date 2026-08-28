@@ -31,7 +31,7 @@ musumali_strategy:
 
   # Higher-Timeframe Bias
   htf_timeframe: "H1"
-  require_htf_alignment: true
+  require_htf_alignment: false     # Allow sweeps on both swing highs (sell) and swing lows (buy)
   htf_fast_ema: 20
   htf_slow_ema: 50
   htf_trend_ema: 200
@@ -40,7 +40,7 @@ musumali_strategy:
 # LIQUIDITY ZONE COOLDOWN
 # ==============================================================================
 zone_management:
-  zone_band_points: 5.0
+  zone_band_points: 2.0
   max_zone_failures: 2
   zone_cooldown_minutes: 10
 

@@ -162,15 +162,17 @@ class M1Scalper:
             rsi_ok_sell = (rsi >= 30.0 and rsi <= 65.0) or (is_bear_pinbar or is_bear_sweep)
 
             if rsi_ok_sell:
-                # Trigger Confirmation: Bid cleanly breaks previous bar low
+                # Trigger Confirmation: Bid cleanly breaks previous bar low within tight 0.20 ATR buffer (No late entries!)
                 if tick.bid <= prev_bar["low"]:
-                    if (prev_bar["low"] - tick.bid) <= (atr * 0.75):
+                    chase_dist = prev_bar["low"] - tick.bid
+                    max_chase = max(atr * 0.20, 0.35)
+                    if chase_dist <= max_chase:
                         entry = tick.bid
                         stop_loss = round(entry + sl_dist, digits)
                         take_profit = round(entry - tp_dist, digits)
                         candle_id = f"SCALP_SELL_{tf_name}_{c_time_str}"
                         reason = (
-                            f"[CONFIRMED SELL {tf_name}] Pattern: {pattern_lbl} @ {entry:.2f} | "
+                            f"[EARLY TRIGGER SELL {tf_name}] Pattern: {pattern_lbl} @ {entry:.2f} (Break: -${chase_dist:.2f}) | "
                             f"RSI: {rsi:.1f} | ATR({self.atr_period}): ${atr:.2f} | "
                             f"SL: {stop_loss:.2f} (-${sl_dist:.2f}) | TP: {take_profit:.2f} (+${tp_dist:.2f}) [1:{self.risk_reward_ratio:.1f} R:R]"
                         )
@@ -197,15 +199,17 @@ class M1Scalper:
             rsi_ok_buy = (rsi >= 38.0 and rsi <= 70.0) or (is_bull_pinbar or is_bull_sweep)
 
             if rsi_ok_buy:
-                # Trigger Confirmation: Ask cleanly breaks previous bar high
+                # Trigger Confirmation: Ask cleanly breaks previous bar high within tight 0.20 ATR buffer (No late entries!)
                 if tick.ask >= prev_bar["high"]:
-                    if (tick.ask - prev_bar["high"]) <= (atr * 0.75):
+                    chase_dist = tick.ask - prev_bar["high"]
+                    max_chase = max(atr * 0.20, 0.35)
+                    if chase_dist <= max_chase:
                         entry = tick.ask
                         stop_loss = round(entry - sl_dist, digits)
                         take_profit = round(entry + tp_dist, digits)
                         candle_id = f"SCALP_BUY_{tf_name}_{c_time_str}"
                         reason = (
-                            f"[CONFIRMED BUY {tf_name}] Pattern: {pattern_lbl} @ {entry:.2f} | "
+                            f"[EARLY TRIGGER BUY {tf_name}] Pattern: {pattern_lbl} @ {entry:.2f} (Break: +${chase_dist:.2f}) | "
                             f"RSI: {rsi:.1f} | ATR({self.atr_period}): ${atr:.2f} | "
                             f"SL: {stop_loss:.2f} (-${sl_dist:.2f}) | TP: {take_profit:.2f} (+${tp_dist:.2f}) [1:{self.risk_reward_ratio:.1f} R:R]"
                         )
