@@ -118,11 +118,11 @@ risk_management:
 # CIRCUIT BREAKERS (FIX 17)
 # ==============================================================================
 circuit_breakers:
-  max_daily_drawdown_percent: 50.0 # Halt if daily loss exceeds 50% ($5.00 on $10 account)
+  max_daily_drawdown_percent: 50.0 # Halt if daily loss exceeds 50%
   max_daily_profit_percent: 100.0  # Daily target 100%
-  max_consecutive_losses: 3        # Fix 17: Pause module after 3 consecutive losses
-  consecutive_loss_window_minutes: 30 # Fix 17: Window to detect clustered losses
-  circuit_breaker_cooldown_minutes: 20 # Fix 17: Cooldown duration before re-enabling entries
+  max_consecutive_losses: 5        # Pause module after 5 genuine consecutive losses
+  consecutive_loss_window_minutes: 20 # Window to detect clustered losses
+  circuit_breaker_cooldown_minutes: 5 # Short 5-minute cooldown before re-enabling entries
 
 system:
   poll_interval_seconds: 1

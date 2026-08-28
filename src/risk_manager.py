@@ -133,8 +133,8 @@ class RiskManager:
             f"Total Day P&L: ${(self.daily_pnl_scalp + self.daily_pnl_musumali):+.2f}"
         )
 
-        if profit < -0.05:
-            # Global & Per-Module Loss Recording
+        if profit < -1.00:
+            # Genuine Hard Loss Recording
             self.consecutive_losses += 1
             logger.warning(f"Trade closed with loss: ${profit:.2f} | Consecutive Losses: {self.consecutive_losses}")
 
