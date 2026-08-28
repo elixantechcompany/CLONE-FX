@@ -294,6 +294,7 @@ class GoldTradingBot:
 
         equity = acc["equity"]
         now = time.time()
+        self.risk_manager.reset_daily_metrics_if_needed(equity)
 
         # Step 1: Manage active open positions (Break-Even, Trailing Stop, Retracement Guard)
         all_positions = self.executor.get_open_positions(self.active_symbol)
