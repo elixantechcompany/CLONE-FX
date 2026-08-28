@@ -45,7 +45,7 @@ zone_management:
   zone_cooldown_minutes: 10
 
 # ==============================================================================
-# ENGINE 2: 1-MINUTE & 5-MINUTE MICRO-SCALPER [Magic: 1001]
+# ENGINE 2: HIGH-CONVICTION MICRO-SCALPER (M5, M15) [Magic: 1001]
 # ==============================================================================
 m1_scalper:
   enabled: true
@@ -56,14 +56,14 @@ m1_scalper:
   trend_ema_period: 20
   trend_slope_bars: 3
   magic_number: 1001               # Fix 10: Unique Magic Number for M1_Scalp
-  timeframes: ["M1", "M5"]         # High-frequency M1 & M5 scalping
+  timeframes: ["M5", "M15"]        # Clean M5 & M15 high-probability scalping (Eliminates M1 noise)
   max_concurrent_scalp: 1          # Micro-account: Max 1 active scalper position
   fast_ema: 7
   slow_ema: 16
   sweep_lookback_bars: 8
   
   # Reasonable ATR-Scaled Risk & Stop Loss
-  atr_period: 14                   # 14-period ATR on M1
+  atr_period: 14                   # 14-period ATR on M5
   atr_sl_multiplier: 1.5           # 1.5x ATR stop-loss distance
   risk_reward_ratio: 2.0           # 1:2 R:R target
   min_sl_dollars: 2.00             # Reasonable stop loss floor (giving trade room to breathe)
@@ -73,31 +73,31 @@ m1_scalper:
 # DYNAMIC PROFIT MANAGEMENT & RETRACEMENT PROTECTION (UNIFIED)
 # ==============================================================================
 profit_management:
-  # Fix 24: Direct Profit Giveback Cap (50% max giveback / min peak $0.50)
+  # Fix 24: Direct Profit Giveback Cap (40% max giveback once peak hits $0.80+)
   giveback_cap_enabled: true
-  giveback_min_peak_dollars: 0.50      # Enforce giveback cap once peak hits $0.50+
-  giveback_max_pct: 0.50               # Close immediately if profit drops 50% from peak
+  giveback_min_peak_dollars: 0.80      # Enforce giveback cap once peak hits $0.80+
+  giveback_max_pct: 0.40               # Retain at least 60% of peak gains
   
-  # Tier 0: Direct Profit Target Closer ($1.00 - $2.00 Automatic Profit Take)
-  auto_take_profit_target_dollars: 1.50 # Direct target take profit ($1.50)
-  auto_take_profit_min_dollars: 1.00    # Close if profit reaches $1.00+ and stalls
+  # Tier 0: Direct Profit Target Closer ($2.00 - $3.50 Automatic Profit Take)
+  auto_take_profit_target_dollars: 2.50 # Direct target take profit ($2.50)
+  auto_take_profit_min_dollars: 1.50    # Close if profit reaches $1.50+ and stalls
   
-  # Tier 1: Zero-Tolerance Loss Shield & Early Green Lock
-  lock_profit_start_dollars: 0.25      # Lock in profits starting from $0.25 (covers spread)
-  breakeven_lock_offset: 0.15          # Lock +$0.15 guaranteed green profit
+  # Tier 1: Real-World Spread-Safe Breakeven Lock (+0.60+ gain)
+  lock_profit_start_dollars: 0.60      # Move SL to breakeven once profit reaches +$0.60 (spread-safe)
+  breakeven_lock_offset: 0.25          # Lock +$0.25 guaranteed green profit
   
   # Tier 2: Positive Profit Retracement Guard (NEVER let profitable orders close with a loss)
-  retrace_guard_min_peak_dollars: 0.25 # Active as soon as trade touches $0.25 peak
+  retrace_guard_min_peak_dollars: 0.50 # Active once trade touches $0.50 peak
   retrace_guard_max_giveback_pct: 0.35 # Close if profit drops 35% from peak
   
   # Tier 3: Emergency Capital Shield
   max_hard_loss_per_trade_dollars: 2.50 # Cap maximum loss per trade
-  max_account_floating_drawdown_dollars: 4.00 # Emergency account-wide shield
+  max_account_floating_drawdown_dollars: 3.50 # Emergency account-wide shield
   
   # Tier 4: Dynamic Continuous Trailing Stop
   trailing_enabled: true
-  trailing_trigger_r: 0.6              # Start continuous trailing early at +0.6R
-  trailing_distance_dollars: 0.60      # Gold ATR trailing buffer ($0.60)
+  trailing_trigger_r: 0.8              # Start continuous trailing at +0.8R
+  trailing_distance_dollars: 0.80      # Gold ATR trailing buffer ($0.80)
 
 # ==============================================================================
 # HARMONY & RISK ALLOCATION SPLIT (FIX 11 & FIX 12)
@@ -108,14 +108,14 @@ harmony_rules:
   total_max_open_positions: 2      # Strict concurrency (Max 2 total across account)
   max_musumali_positions: 1        # Max 1 Musumali trade
   max_scalper_positions: 1         # Max 1 Scalper trade
-  cooldown_seconds_per_trade: 0    # Continuous scanning
+  cooldown_seconds_per_trade: 120  # 2-minute cooldown after trade exit (Prevents churn overtrading)
 
 risk_management:
   lot_mode: "fixed"                # Fixed micro lots for safety
   risk_per_trade_percent: 1.5      # Base 1.5% risk per trade
   max_total_account_risk_percent: 6.0 # Total portfolio shared risk ceiling
   fixed_lot_size: 0.01             # Base micro lot
-  max_daily_trades: 50
+  max_daily_trades: 15             # Quality over quantity (Max 15 high-conviction trades/day)
   max_spread_points: 350
   slippage_points: 25
 

@@ -292,9 +292,11 @@ class GoldTradingBot:
                     self.logger.info(
                         f"[MUSUMALI HTF CANDLE DECISION FIX 20] H1 Bar: {h1_bar_time} | Daily Gate: {daily_trend} | "
                         f"Status: ACTIVE | Action: SKIPPED | Reason: No H1 liquidity sweep or confirmation break"
-                    )
+            trade_cooldown = self.harmony_cfg.get("cooldown_seconds_per_trade", 0)
+            time_since_trade = time.time() - self.last_trade_execution_time
+            in_trade_cooldown = (trade_cooldown > 0 and time_since_trade < trade_cooldown)
 
-            if can_trade and spread_ok and not in_cd_m and sig in ("BUY", "SELL") and candle_id:
+            if can_trade and spread_ok and not in_cd_m and not in_trade_cooldown and sig in ("BUY", "SELL") and candle_id:
                 if candle_id in self.traded_candle_ids:
                     pass  # Already executed on this specific candle
                 elif len(all_positions) >= self.total_max_open:
@@ -406,7 +408,7 @@ class GoldTradingBot:
                         f"Status: ACTIVE | Action: SKIPPED | Reason: {no_trade_reason}"
                     )
 
-            if can_trade and spread_ok and not in_cd_s:
+            if can_trade and spread_ok and not in_cd_s and not in_trade_cooldown:
                 # Check if signal is allowed (Bidirectional or Trend-Aligned)
                 signal_allowed = False
                 if sig_s in ("BUY", "SELL"):

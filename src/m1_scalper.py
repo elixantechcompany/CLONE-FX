@@ -37,14 +37,18 @@ class M1Scalper:
         self.trend_slope_bars = self.scalp_cfg.get("trend_slope_bars", 3)
         self.bidirectional = self.scalp_cfg.get("bidirectional", False)
 
-        tf_list = self.scalp_cfg.get("timeframes", ["M1"])
+        tf_list = self.scalp_cfg.get("timeframes", ["M5", "M15"])
         self.timeframes = []
         if "M1" in tf_list:
             self.timeframes.append(("M1", mt5.TIMEFRAME_M1))
         if "M5" in tf_list:
             self.timeframes.append(("M5", mt5.TIMEFRAME_M5))
+        if "M15" in tf_list:
+            self.timeframes.append(("M15", mt5.TIMEFRAME_M15))
+        if "M30" in tf_list:
+            self.timeframes.append(("M30", mt5.TIMEFRAME_M30))
         if not self.timeframes:
-            self.timeframes = [("M1", mt5.TIMEFRAME_M1)]
+            self.timeframes = [("M5", mt5.TIMEFRAME_M5)]
 
     def fetch_rates(self, symbol: str, timeframe: int, count: int = 50) -> Optional[pd.DataFrame]:
         """Fetches latest OHLCV candles from MT5."""
