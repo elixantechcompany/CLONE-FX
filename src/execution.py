@@ -416,29 +416,24 @@ class OrderExecutor:
                 f"partial_close_active={partial_active}, giveback_cap_active={giveback_active}"
             )
 
-            # Fix 31: Hard Maximum Loss Circuit Breaker (Absolute Backstop)
-            # Calculates effective hard loss ceiling based on dollar cap and equity %
-            hard_loss_ceiling = self.hard_max_loss_dollars
-            acc_info = mt5.account_info()
-            if acc_info and self.hard_max_loss_pct > 0:
-                equity_cap = acc_info.equity * (self.hard_max_loss_pct / 100.0)
-                hard_loss_ceiling = max(min(self.hard_max_loss_dollars, equity_cap), 1.00)
+            # Fix 31: Emergency Catastrophic Backstop (Only cuts if market gaps/slips beyond intended Stop Loss)
+            open_p = t_data.get("entry_price", open_price)
+            orig_sl = t_data.get("initial_sl", current_sl)
+            intended_risk = t_data.get("risk_distance", abs(open_p - orig_sl)) * volume * 100.0
+            catastrophic_cap = max(intended_risk * 1.35, self.hard_max_loss_dollars, 4.50)
 
-            if profit <= -hard_loss_ceiling:
-                open_p = t_data.get("entry_price", open_price)
-                orig_sl = t_data.get("initial_sl", current_sl)
-                intended_risk = t_data.get("risk_distance", abs(open_p - orig_sl)) * volume * 100.0
+            if profit <= -catastrophic_cap:
                 overshoot = abs(profit) - intended_risk
                 diag_msg = (
-                    f"[HARD MAX-LOSS CIRCUIT BREAKER FIX 31] Force-closing Ticket #{ticket} ({p_type})! "
-                    f"Floating loss -${abs(profit):.2f} hit hard ceiling -${hard_loss_ceiling:.2f} | "
+                    f"[CATASTROPHIC LOSS BACKSTOP FIX 31] Force-closing Ticket #{ticket} ({p_type})! "
+                    f"Floating loss -${abs(profit):.2f} breached catastrophic ceiling -${catastrophic_cap:.2f} | "
                     f"Entry: {open_p:.2f} | Current: {curr_price:.2f} | Original SL: {orig_sl:.2f} | "
                     f"Intended Risk: ${intended_risk:.2f} | Slippage/Overshoot: ${overshoot:+.2f}"
                 )
                 logger.critical(f"================================================================")
                 logger.critical(f" {diag_msg}")
                 logger.critical(f"================================================================")
-                self.close_position(ticket, symbol, reason=f"HardMaxLossCut_-${abs(profit):.2f}")
+                self.close_position(ticket, symbol, reason=f"EmergencyCapCut_-${abs(profit):.2f}")
                 continue
 
             # =================================================================
