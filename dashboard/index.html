@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GoldBot Pro — Institutional Liquidity & Performance Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    :root {
+      --bg-base: #0a0b0e;
+      --bg-surface: rgba(18, 20, 29, 0.75);
+      --bg-card: rgba(26, 29, 43, 0.65);
+      --border-glow: rgba(212, 175, 55, 0.25);
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --gold-primary: #f5c842;
+      --gold-gradient: linear-gradient(135deg, #ffd700 0%, #d4af37 50%, #aa7c11 100%);
+      --emerald: #10b981;
+      --emerald-glow: rgba(16, 185, 129, 0.2);
+      --rose: #f43f5e;
+      --rose-glow: rgba(244, 63, 94, 0.2);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --font-ui: 'Outfit', -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-base);
+      background-image: 
+        radial-gradient(circle at 15% 15%, rgba(212, 175, 55, 0.06) 0%, transparent 40%),
+        radial-gradient(circle at 85% 85%, rgba(16, 185, 129, 0.05) 0%, transparent 45%);
+      color: var(--text-main);
+      font-family: var(--font-ui);
+      min-height: 100vh;
+      padding: 24px;
+      overflow-x: hidden;
+    }
+
+    .dashboard-container {
+      max-width: 1440px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* Header */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 20px 28px;
+      background: var(--bg-surface);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 20px;
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .brand-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: var(--gold-gradient);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      box-shadow: 0 0 20px rgba(212, 175, 55, 0.4);
+    }
+
+    .brand h1 {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #ffffff 40%, #d4af37 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand p {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .header-badges {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 100px;
+      font-size: 13px;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .badge-live {
+      background: rgba(16, 185, 129, 0.12);
+      border-color: rgba(16, 185, 129, 0.3);
+      color: var(--emerald);
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--emerald);
+      box-shadow: 0 0 10px var(--emerald);
+      animation: pulse 1.8s infinite;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 0.4; transform: scale(0.9); }
+      50% { opacity: 1; transform: scale(1.15); }
+      100% { opacity: 0.4; transform: scale(0.9); }
+    }
+
+    /* Grid Layout */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 18px;
+    }
+
+    .metric-card {
+      background: var(--bg-surface);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 18px;
+      padding: 22px;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+
+    .metric-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--border-glow);
+    }
+
+    .metric-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--gold-primary), transparent);
+      opacity: 0.5;
+    }
+
+    .metric-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .metric-value {
+      font-size: 32px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      letter-spacing: -1px;
+    }
+
+    .metric-sub {
+      font-size: 13px;
+      margin-top: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .green { color: var(--emerald); }
+    .red { color: var(--rose); }
+    .gold { color: var(--gold-primary); }
+
+    /* Main Chart & Side Panels */
+    .main-section {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 20px;
+    }
+
+    @media (max-width: 1024px) {
+      .main-section { grid-template-columns: 1fr; }
+    }
+
+    .chart-container {
+      background: var(--bg-surface);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 20px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .panel-title {
+      font-size: 17px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #tv_chart {
+      width: 100%;
+      height: 480px;
+      border-radius: 14px;
+      overflow: hidden;
+      background: #0d0f15;
+    }
+
+    .side-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .panel-card {
+      background: var(--bg-surface);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 20px;
+      padding: 22px;
+    }
+
+    .module-item {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 14px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      margin-top: 12px;
+    }
+
+    .module-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .module-name {
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .module-stats {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    /* Table */
+    .table-container {
+      background: var(--bg-surface);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 20px;
+      padding: 24px;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      text-align: left;
+      margin-top: 14px;
+    }
+
+    th {
+      color: var(--text-muted);
+      font-weight: 500;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+    }
+
+    td {
+      padding: 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      font-family: var(--font-mono);
+    }
+
+    .type-buy {
+      color: var(--emerald);
+      font-weight: 700;
+      background: rgba(16, 185, 129, 0.1);
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+
+    .type-sell {
+      color: var(--rose);
+      font-weight: 700;
+      background: rgba(244, 63, 94, 0.1);
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+
+    .empty-state {
+      padding: 30px;
+      text-align: center;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <div class="dashboard-container">
+    
+    <!-- Top Bar -->
+    <header>
+      <div class="brand">
+        <div class="brand-icon">⚡</div>
+        <div>
+          <h1>GoldBot Pro</h1>
+          <p>Institutional Sweeps & Agile Micro-Scalping Engine</p>
+        </div>
+      </div>
+      <div class="header-badges">
+        <div class="badge" id="session_badge">Session: Detecting...</div>
+        <div class="badge badge-live">
+          <div class="live-dot"></div>
+          <span>LIVE AUTONOMOUS</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Metrics Row -->
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-label">Account Equity</div>
+        <div class="metric-value gold" id="val_equity">$0.00</div>
+        <div class="metric-sub" id="sub_balance">Balance: $0.00</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Realized P&L Today</div>
+        <div class="metric-value green" id="val_day_pnl">+$0.00</div>
+        <div class="metric-sub" id="sub_day_trades">0 Total Trades Today</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Active Orders</div>
+        <div class="metric-value" id="val_open_count">0/2</div>
+        <div class="metric-sub green" id="val_floating_pnl">Floating: +$0.00</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Market Bias</div>
+        <div class="metric-value" style="font-size: 24px;" id="val_trend">DOWNTREND</div>
+        <div class="metric-sub" id="val_spread">Spread: -- pts</div>
+      </div>
+    </div>
+
+    <!-- Main Chart & Side Info -->
+    <div class="main-section">
+      <div class="chart-container">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>📈 Live XAUUSD Price & Institutional Sweep Zones (M5)</span>
+          </div>
+          <div class="badge" id="chart_symbol">XAUUSDm</div>
+        </div>
+        <div id="tv_chart"></div>
+      </div>
+
+      <!-- Side Panel Modules -->
+      <div class="side-panel">
+        <div class="panel-card">
+          <div class="panel-title">🤖 Active Engines</div>
+          
+          <div class="module-item">
+            <div class="module-top">
+              <span class="module-name gold">Engine 1: Musumali Sweeps</span>
+              <span class="badge" style="padding: 2px 8px; font-size: 11px;">#2001</span>
+            </div>
+            <div class="module-stats" id="mod_musumali_stats">P&L: +$0.00 | 0W / 0L (0.0%)</div>
+          </div>
+
+          <div class="module-item">
+            <div class="module-top">
+              <span class="module-name green">Engine 2: Micro-Scalper</span>
+              <span class="badge" style="padding: 2px 8px; font-size: 11px;">#1001</span>
+            </div>
+            <div class="module-stats" id="mod_scalp_stats">P&L: +$0.00 | 0W / 0L (0.0%)</div>
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <div class="panel-title">🛡️ Circuit Breakers & Shields</div>
+          <div style="font-size: 13px; color: var(--text-muted); margin-top: 12px; line-height: 1.6;" id="circuit_text">
+            • Giveback Cap (Fix 24): Active (60% Retention)<br>
+            • Stop & Reverse (Fix 33): Disabled<br>
+            • Loss Backstop (Fix 31): $5.00 Cap Shield<br>
+            • Equity Kill Switch (Fix 30): Safety Floor Active
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Trades Table -->
+    <div class="table-container">
+      <div class="panel-title">🎯 Active Running Positions</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Ticket</th>
+            <th>Engine</th>
+            <th>Type</th>
+            <th>Lots</th>
+            <th>Entry Price</th>
+            <th>Current Price</th>
+            <th>Stop Loss</th>
+            <th>Take Profit</th>
+            <th>Floating P&L</th>
+          </tr>
+        </thead>
+        <tbody id="positions_tbody">
+          <tr><td colspan="9" class="empty-state">No open positions currently active. Bot scanning market...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <script>
+    let chart, candleSeries;
+
+    function initChart() {
+      const container = document.getElementById('tv_chart');
+      chart = LightweightCharts.createChart(container, {
+        layout: {
+          background: { color: '#0d0f15' },
+          textColor: '#94a3b8',
+        },
+        grid: {
+          vertLines: { color: 'rgba(255, 255, 255, 0.03)' },
+          horzLines: { color: 'rgba(255, 255, 255, 0.03)' },
+        },
+        crosshair: {
+          mode: LightweightCharts.CrosshairMode.Normal,
+        },
+        rightPriceScale: {
+          borderColor: 'rgba(255, 255, 255, 0.08)',
+        },
+        timeScale: {
+          borderColor: 'rgba(255, 255, 255, 0.08)',
+          timeVisible: true,
+          secondsVisible: false,
+        },
+      });
+
+      candleSeries = chart.addCandlestickSeries({
+        upColor: '#10b981',
+        downColor: '#f43f5e',
+        borderVisible: false,
+        wickUpColor: '#10b981',
+        wickDownColor: '#f43f5e',
+      });
+
+      window.addEventListener('resize', () => {
+        chart.applyOptions({ width: container.clientWidth });
+      });
+    }
+
+    async function fetchDashboardData() {
+      try {
+        const res = await fetch('data.json?t=' + Date.now());
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // Update Top Metrics
+        document.getElementById('val_equity').textContent = '$' + data.account.equity.toFixed(2);
+        document.getElementById('sub_balance').textContent = 'Balance: $' + data.account.balance.toFixed(2);
+        
+        const dayPnl = data.performance.total_day_pnl;
+        const dayEl = document.getElementById('val_day_pnl');
+        dayEl.textContent = (dayPnl >= 0 ? '+$' : '-$') + Math.abs(dayPnl).toFixed(2);
+        dayEl.className = 'metric-value ' + (dayPnl >= 0 ? 'green' : 'red');
+
+        const totalTrades = data.performance.scalp_trades + data.performance.musumali_trades;
+        document.getElementById('sub_day_trades').textContent = totalTrades + ' Total Trades Today';
+
+        document.getElementById('val_open_count').textContent = data.positions.length + '/2';
+        const floatingPnl = data.positions.reduce((acc, p) => acc + p.profit, 0);
+        const floatEl = document.getElementById('val_floating_pnl');
+        floatEl.textContent = 'Floating: ' + (floatingPnl >= 0 ? '+$' : '-$') + Math.abs(floatingPnl).toFixed(2);
+        floatEl.className = 'metric-sub ' + (floatingPnl >= 0 ? 'green' : 'red');
+
+        document.getElementById('val_trend').textContent = data.market_state.daily_trend;
+        document.getElementById('session_badge').textContent = 'Session: ' + data.market_state.session;
+        document.getElementById('chart_symbol').textContent = data.symbol;
+
+        // Module Performance
+        document.getElementById('mod_musumali_stats').textContent = 
+          `P&L: ${data.performance.musumali_pnl >= 0 ? '+$' : '-$'}${Math.abs(data.performance.musumali_pnl).toFixed(2)} | ` +
+          `${data.performance.musumali_wins}W / ${data.performance.musumali_trades - data.performance.musumali_wins}L (${data.performance.musumali_winrate}%)`;
+
+        document.getElementById('mod_scalp_stats').textContent = 
+          `P&L: ${data.performance.scalp_pnl >= 0 ? '+$' : '-$'}${Math.abs(data.performance.scalp_pnl).toFixed(2)} | ` +
+          `${data.performance.scalp_wins}W / ${data.performance.scalp_trades - data.performance.scalp_wins}L (${data.performance.scalp_winrate}%)`;
+
+        // Update Candles Chart
+        if (data.candles && data.candles.length > 0) {
+          candleSeries.setData(data.candles);
+        }
+
+        // Update Positions Table
+        const tbody = document.getElementById('positions_tbody');
+        if (data.positions.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No open positions currently active. Bot scanning market...</td></tr>';
+        } else {
+          tbody.innerHTML = data.positions.map(p => `
+            <tr>
+              <td>#${p.ticket}</td>
+              <td style="color: var(--gold-primary); font-weight: 600;">${p.module}</td>
+              <td><span class="${p.type === 'BUY' ? 'type-buy' : 'type-sell'}">${p.type}</span></td>
+              <td>${p.volume.toFixed(2)}</td>
+              <td>${p.open_price.toFixed(2)}</td>
+              <td>${p.current_price.toFixed(2)}</td>
+              <td style="color: var(--rose);">${p.sl.toFixed(2)}</td>
+              <td style="color: var(--emerald);">${p.tp.toFixed(2)}</td>
+              <td style="font-weight: 700; color: ${p.profit >= 0 ? 'var(--emerald)' : 'var(--rose)'};">
+                ${p.profit >= 0 ? '+$' : '-$'}${Math.abs(p.profit).toFixed(2)}
+              </td>
+            </tr>
+          `).join('');
+        }
+
+      } catch (e) {
+        console.warn('Waiting for next dashboard tick...', e);
+      }
+    }
+
+    initChart();
+    fetchDashboardData();
+    setInterval(fetchDashboardData, 2500);
+  </script>
+</body>
+</html>

@@ -55,9 +55,9 @@ class RiskManager:
         self.daily_wins_musumali: int = 0
 
         # Fix 17: Per-Module Consecutive-Loss Circuit Breakers
-        self.consecutive_loss_threshold = self.circuit_config.get("max_consecutive_losses", 5)
+        self.consecutive_loss_threshold = self.circuit_config.get("max_consecutive_losses", 3)
         self.consecutive_loss_window_seconds = self.circuit_config.get("consecutive_loss_window_minutes", 20) * 60.0
-        self.circuit_breaker_cooldown_seconds = self.circuit_config.get("circuit_breaker_cooldown_minutes", 3) * 60.0
+        self.circuit_breaker_cooldown_seconds = self.circuit_config.get("circuit_breaker_cooldown_minutes", 15) * 60.0
         self.module_consecutive_losses: Dict[int, int] = {
             self.magic_scalper: 0,
             self.magic_musumali: 0,
@@ -71,6 +71,18 @@ class RiskManager:
             self.magic_musumali: 0.0,
         }
 
+        # Professional Drawdown Ladder & Sizing Multiplier
+        self.dd_warning_pct = self.circuit_config.get("drawdown_warning_pct", 1.0)
+        self.dd_risk_reduction_pct = self.circuit_config.get("drawdown_risk_reduction_pct", 2.0)
+        self.dd_pause_pct = self.circuit_config.get("drawdown_pause_pct", 3.0)
+        self.dd_pause_cooldown_until: float = 0.0
+        self.risk_reduction_multiplier: float = 1.0
+
+        # Profit Capture Efficiency & Exit Reason Analytics
+        self.exit_reason_stats: Dict[str, dict] = {}
+        self.total_peak_r: float = 0.0
+        self.total_captured_r: float = 0.0
+
     def reset_daily_metrics_if_needed(self, current_equity: float):
         """Resets the day's baseline equity and counters at midnight UTC."""
         today = datetime.datetime.now(datetime.timezone.utc).date()
@@ -82,6 +94,8 @@ class RiskManager:
             self.trip_reason = ""
             self.consecutive_losses = 0
             self.consecutive_loss_cooldown_until = 0.0
+            self.dd_pause_cooldown_until = 0.0
+            self.risk_reduction_multiplier = 1.0
             self.zone_failures.clear()
             self.zone_cooldown_until.clear()
             self.daily_pnl_scalp = 0.0
@@ -104,9 +118,18 @@ class RiskManager:
         max_trades = self.risk_config.get("max_daily_trades", 15)
         logger.info(f"Daily trade count incremented: {self.daily_trade_count}/{max_trades}")
 
-    def record_trade_result(self, zone_id: Optional[float], profit: float, magic: Optional[int] = None):
+    def record_trade_result(
+        self,
+        zone_id: Optional[float],
+        profit: float,
+        magic: Optional[int] = None,
+        exit_reason: str = "SL_TP_HIT",
+        peak_r: float = 0.0,
+        captured_r: float = 0.0,
+    ):
         """
-        Priority 3, 4, Fix 13 & Fix 17: Updates zone failure memory, per-module consecutive losses, and performance.
+        Priority 3, 4, Fix 13, Fix 17 & Intelligent Exit Analytics:
+        Updates zone failure memory, per-module consecutive losses, profit capture efficiency, and exit reasons.
         """
         now = time.time()
 
@@ -126,6 +149,19 @@ class RiskManager:
             self.daily_trades_musumali += 1
             if profit > 0.0:
                 self.daily_wins_musumali += 1
+
+        # Track Profit Capture Efficiency
+        if peak_r > 0:
+            self.total_peak_r += peak_r
+            self.total_captured_r += max(0.0, captured_r)
+
+        # Categorical Exit Reason Breakdown
+        clean_reason = exit_reason.split()[0] if exit_reason else "UNKNOWN"
+        if clean_reason not in self.exit_reason_stats:
+            self.exit_reason_stats[clean_reason] = {"count": 0, "profit": 0.0, "captured_r": 0.0}
+        self.exit_reason_stats[clean_reason]["count"] += 1
+        self.exit_reason_stats[clean_reason]["profit"] += profit
+        self.exit_reason_stats[clean_reason]["captured_r"] += captured_r
 
         logger.info(
             f"[DAILY MODULE P&L AUDIT FIX 13] Scalp P&L Today: ${self.daily_pnl_scalp:+.2f} ({self.daily_trades_scalp} trades, {self.daily_wins_scalp}W) | "
@@ -234,6 +270,16 @@ class RiskManager:
             "total_day_pnl": self.daily_pnl_scalp + self.daily_pnl_musumali,
         }
 
+    def get_profit_capture_analytics(self) -> dict:
+        """Computes and returns Profit Capture Efficiency and exit reason statistics."""
+        eff_pct = (self.total_captured_r / self.total_peak_r * 100.0) if self.total_peak_r > 0 else 0.0
+        return {
+            "total_peak_r": round(self.total_peak_r, 2),
+            "total_captured_r": round(self.total_captured_r, 2),
+            "capture_efficiency_pct": round(eff_pct, 1),
+            "exit_reason_breakdown": self.exit_reason_stats,
+        }
+
     def is_zone_allowed(self, zone_id: Optional[float]) -> Tuple[bool, str]:
         """
         Priority 3: Checks if a liquidity price zone is currently in cooldown due to previous failures.
@@ -254,8 +300,11 @@ class RiskManager:
 
     def check_circuit_breakers(self, current_equity: float) -> Tuple[bool, str]:
         """
-        Priority 4 & Fix 30: Validates daily loss circuit breaker, consecutive loss cooldown,
-        daily trade caps, and emergency account equity kill switch.
+        Priority 4 & Institutional Drawdown Ladder:
+        1. 1% Warning
+        2. 2% Risk Reduction (0.5x sizing)
+        3. 3% 30-Minute Trading Pause
+        4. 4-5% Hard Daily Halt
         Returns: (can_trade: bool, reason: str)
         """
         self.reset_daily_metrics_if_needed(current_equity)
@@ -265,23 +314,18 @@ class RiskManager:
         if self.circuit_tripped:
             return False, f"Trading halted for today: {self.trip_reason}"
 
-        # Fix 30: Emergency Account-Wide Equity Kill Switch
-        equity_floor = self.circuit_config.get("equity_floor_dollars", 5.00)
-        equity_drop_limit_pct = self.circuit_config.get("equity_kill_switch_drop_pct", 15.0)
-        if self.daily_start_equity > 0:
-            equity_drawdown_pct = max(0.0, (self.daily_start_equity - current_equity) / self.daily_start_equity * 100.0)
-            if current_equity < equity_floor or equity_drawdown_pct >= equity_drop_limit_pct:
-                self.circuit_tripped = True
-                self.trip_reason = (
-                    f"[EQUITY KILL SWITCH FIX 30] Current Equity ${current_equity:.2f} breached safety floor "
-                    f"(Floor: ${equity_floor:.2f}, Session Drop: -{equity_drawdown_pct:.1f}% >= -{equity_drop_limit_pct:.1f}%)! "
-                    f"Disabling all trading across both modules until manual review."
-                )
-                logger.critical(f"================================================================")
-                logger.critical(f" {self.trip_reason}")
-                logger.critical(f" Trading HARD-HALTED across both modules to protect account.")
-                logger.critical(f"================================================================")
-                return False, self.trip_reason
+        # Emergency Account-Wide Safety Floor
+        equity_floor = self.circuit_config.get("equity_floor_dollars", 4.50)
+        if current_equity < equity_floor:
+            self.circuit_tripped = True
+            self.trip_reason = f"Account equity ${current_equity:.2f} breached preservation floor ${equity_floor:.2f}!"
+            logger.critical(f"[CIRCUIT BREAKER] {self.trip_reason}")
+            return False, self.trip_reason
+
+        # Check 30-minute Drawdown Pause
+        if now < self.dd_pause_cooldown_until:
+            rem_min = int((self.dd_pause_cooldown_until - now) / 60)
+            return False, f"Drawdown Cooling Pause Active ({rem_min} mins remaining)"
 
         # Check consecutive loss cooldown
         if now < self.consecutive_loss_cooldown_until:
@@ -293,16 +337,18 @@ class RiskManager:
         if self.daily_trade_count >= max_trades:
             return False, f"Daily trade cap reached ({self.daily_trade_count}/{max_trades})"
 
-        # Check daily drawdown circuit breaker based on realized closed trade losses
+        # Evaluate Realized Daily Drawdown Ladder
         realized_pnl = self.daily_pnl_scalp + self.daily_pnl_musumali
         ref_balance = max(self.daily_start_equity, current_equity, 10.0)
         if realized_pnl < 0:
             realized_loss = abs(realized_pnl)
             daily_loss_pct = (realized_loss / ref_balance) * 100.0
+
+            # Level 4: Hard Daily Stop (5.0%)
             if daily_loss_pct >= self.max_daily_dd_pct:
                 self.circuit_tripped = True
                 self.trip_reason = (
-                    f"Daily Max-Loss Circuit Breaker Tripped! Realized Daily Loss: -${realized_loss:.2f} "
+                    f"Hard Max-Loss Circuit Breaker Tripped! Realized Daily Loss: -${realized_loss:.2f} "
                     f"(-{daily_loss_pct:.1f}% >= -{self.max_daily_dd_pct}%)"
                 )
                 logger.critical(f"================================================================")
@@ -310,6 +356,28 @@ class RiskManager:
                 logger.critical(f" Trading HALTED for remainder of day to protect capital.")
                 logger.critical(f"================================================================")
                 return False, self.trip_reason
+
+            # Level 3: 30-Minute Pause (3.0%)
+            elif daily_loss_pct >= self.dd_pause_pct:
+                if self.dd_pause_cooldown_until <= now:
+                    self.dd_pause_cooldown_until = now + 1800  # 30 mins
+                    logger.warning(
+                        f"[DRAWDOWN LADDER LEVEL 3] Realized Loss -${realized_loss:.2f} (-{daily_loss_pct:.1f}% >= -{self.dd_pause_pct}%) -> "
+                        f"Pausing new entries for 30 minutes to let market settle."
+                    )
+                return False, f"Drawdown Cooling Pause (-{daily_loss_pct:.1f}%)"
+
+            # Level 2: Risk Reduction Multiplier (2.0%)
+            elif daily_loss_pct >= self.dd_risk_reduction_pct:
+                self.risk_reduction_multiplier = 0.50
+                logger.warning(
+                    f"[DRAWDOWN LADDER LEVEL 2] Realized Loss -${realized_loss:.2f} (-{daily_loss_pct:.1f}% >= -{self.dd_risk_reduction_pct}%) -> "
+                    f"Applying 0.5x position sizing risk reduction."
+                )
+
+            # Level 1: Warning (1.0%)
+            elif daily_loss_pct >= self.dd_warning_pct:
+                logger.info(f"[DRAWDOWN LADDER LEVEL 1] Drawdown warning: -${realized_loss:.2f} (-{daily_loss_pct:.1f}%)")
 
         # Profit lock check based on realized closed trade P&L
         if self.max_daily_profit_pct > 0 and realized_pnl > 0:
@@ -322,19 +390,46 @@ class RiskManager:
 
         return True, "OK"
 
+    def get_session_tuning_params(self) -> dict:
+        """
+        Returns dynamic session-specific parameters (quality score threshold, max spread, RSI levels).
+        """
+        session_name = self.get_current_trading_session()
+        st_cfg = self.risk_config.get("session_tuning", {})
+        if not st_cfg.get("enabled", True):
+            return {
+                "session": session_name,
+                "quality_score_threshold": self.config.get("m1_scalper", {}).get("min_quality_score", 50),
+                "max_spread_points": self.risk_config.get("max_spread_points", 320),
+                "rsi_oversold": 30,
+                "rsi_overbought": 70,
+            }
+
+        sessions = st_cfg.get("sessions", {})
+        params = sessions.get(session_name, {})
+        return {
+            "session": session_name,
+            "quality_score_threshold": params.get("quality_score_threshold", 50),
+            "max_spread_points": params.get("max_spread_points", 320),
+            "rsi_oversold": params.get("rsi_oversold", 28),
+            "rsi_overbought": params.get("rsi_overbought", 72),
+        }
+
     def check_spread_allowed(self, symbol: str) -> Tuple[bool, int, str]:
         """
         Fix 25: Checks if current spread is within the safety threshold and logs explicit rejection message.
+        Uses session-specific spread threshold if session tuning is enabled.
         """
         info = mt5.symbol_info(symbol)
         if info is None:
             return False, 9999, "No symbol info"
 
         current_spread = info.spread
-        max_allowed = self.risk_config.get("max_spread_points", 300)
+        tuning = self.get_session_tuning_params()
+        max_allowed = tuning.get("max_spread_points", self.risk_config.get("max_spread_points", 320))
 
         if current_spread > max_allowed:
-            reason = f"Skipped: spread [{current_spread} pts] exceeds max [{max_allowed} pts]."
+            reason = f"Skipped: spread [{current_spread} pts] exceeds max [{max_allowed} pts] for {tuning['session']} session."
             logger.warning(f"[SPREAD FILTER FIX 25] {reason}")
             return False, current_spread, reason
 
@@ -357,10 +452,6 @@ class RiskManager:
         if now_utc.weekday() <= 4:
             current_minute_of_day = now_utc.hour * 60 + now_utc.minute
 
-            # Major Macro Windows in UTC minutes:
-            # 12:30 UTC = 750 min (NFP, CPI, Core PPI, Retail Sales, GDP)
-            # 14:00 UTC = 840 min (ISM Manufacturing / Services PMI, Consumer Confidence)
-            # 18:00 UTC = 1080 min (FOMC Statement, Fed Interest Rate Decision)
             macro_windows = [
                 (750, "US High-Impact Macro (CPI/NFP/GDP/Retail Sales) @ 12:30 UTC"),
                 (840, "US High-Impact ISM/PMI/Consumer Confidence @ 14:00 UTC"),
@@ -421,9 +512,7 @@ class RiskManager:
         open_trades_count: int = 0,
     ) -> float:
         """
-        Fix 7 & Fix 12: Risk-Based Position Sizing with Shared Account Risk Pool Awareness.
-        Calculates lot size based on a fixed risk percentage of equity divided by the stop loss distance.
-        Ensures total simultaneous portfolio risk across both modules stays within max_total_account_risk_percent.
+        Fix 7, 12 & Auto-Compounding: Calculates position size with tiered compounding and portfolio risk pools.
         """
         info = mt5.symbol_info(symbol)
         min_vol = info.volume_min if info else 0.01
@@ -431,15 +520,31 @@ class RiskManager:
         vol_step = info.volume_step if info else 0.01
         contract_size = info.trade_contract_size if info else 100.0
 
-        mode = self.risk_config.get("lot_mode", "risk_percent")
+        mode = self.risk_config.get("lot_mode", "auto_compound")
         if mode == "fixed":
             fixed_lot = self.risk_config.get("fixed_lot_size", 0.01)
             return max(min_vol, min(round(fixed_lot / vol_step) * vol_step, max_vol))
 
-        base_risk_pct = self.risk_config.get("risk_per_trade_percent", 1.5)
+        if mode == "auto_compound":
+            comp_cfg = self.risk_config.get("compounding", {})
+            if comp_cfg.get("enabled", True):
+                tiers = comp_cfg.get("tiers", [])
+                tier_lot = min_vol
+                for tier in tiers:
+                    if tier.get("min_equity", 0.0) <= equity < tier.get("max_equity", 999999.0):
+                        tier_lot = tier.get("lot_size", min_vol)
+                        break
+                scaled_lot = tier_lot * self.risk_reduction_multiplier
+                final_lots = round(max(min_vol, min(round(scaled_lot / vol_step) * vol_step, max_vol)), 2)
+                logger.info(
+                    f"[AUTO-COMPOUNDING TIER SIZING] Equity: ${equity:.2f} -> Tier Lot: {tier_lot} "
+                    f"(Multiplier: {self.risk_reduction_multiplier}x) -> Sized: {final_lots} lots (Min: {min_vol}, Max: {max_vol})"
+                )
+                return final_lots
+
+        base_risk_pct = self.risk_config.get("risk_per_trade_percent", 1.5) * self.risk_reduction_multiplier
         max_account_risk_pct = self.risk_config.get("max_total_account_risk_percent", 6.0)
 
-        # Shared Risk Budget Allocation across both active modules (Fix 12)
         committed_risk = open_trades_count * base_risk_pct
         remaining_risk = max(0.5, max_account_risk_pct - committed_risk)
         effective_risk_pct = min(base_risk_pct, remaining_risk)
@@ -450,13 +555,12 @@ class RiskManager:
         if sl_distance <= 0:
             sl_distance = 1.0
 
-        # Dollar move on Gold = sl_distance * contract_size per 1.00 lot
         raw_lots = dollar_risk / (sl_distance * contract_size)
         step_lots = round(raw_lots / vol_step) * vol_step
         final_lots = round(max(min_vol, min(step_lots, max_vol)), 2)
 
         logger.info(
             f"[POSITION SIZING FIX 7 & 12] Equity: ${equity:.2f} | Effective Risk: {effective_risk_pct:.2f}% (${dollar_risk:.2f}) "
-            f"(Open: {open_trades_count}, Pool Cap: {max_account_risk_pct}%) | SL Dist: ${sl_distance:.2f} -> Sized: {final_lots} lots"
+            f"(Multiplier: {self.risk_reduction_multiplier}x, Pool Cap: {max_account_risk_pct}%) | SL Dist: ${sl_distance:.2f} -> Sized: {final_lots} lots"
         )
         return final_lots

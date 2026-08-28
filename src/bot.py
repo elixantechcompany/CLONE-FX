@@ -29,6 +29,7 @@ from src.m1_scalper import M1Scalper
 from src.risk_manager import RiskManager
 from src.strategy import MusumaliStrategy
 from src.notifier import Notifier
+from src.dashboard import DashboardExporter
 
 
 def setup_logger(log_level: str = "INFO") -> logging.Logger:
@@ -79,6 +80,7 @@ class GoldTradingBot:
         self.traded_candle_ids: Set[str] = set()
         self._load_traded_candles()
         self.last_trade_execution_time = 0.0
+        self.is_manually_paused = False
 
         # Initialize Submodules
         self.connector = MT5Connector()
@@ -87,6 +89,7 @@ class GoldTradingBot:
         self.executor = OrderExecutor(self.config, risk_manager=self.risk_manager)
         self.musumali_strategy = MusumaliStrategy(self.config)
         self.m1_scalper = M1Scalper(self.config)
+        self.dashboard_exporter = DashboardExporter(self.config)
 
         self.active_symbol: Optional[str] = None
         self.is_running = False
@@ -145,6 +148,9 @@ class GoldTradingBot:
         scalper_tfs = self.m1_scalper.timeframes
         sig_only = self.musumali_strategy.strat_cfg.get("signal_only_mode", True)
         musumali_mode_str = "SIGNAL-ONLY (Dry Run / Validation Mode)" if sig_only else "LIVE ORDER EXECUTION"
+
+        # Start interactive Telegram remote control listener
+        self.notifier.start_command_poller(self)
 
         self.logger.info(
             f"Bot Active 24/7! Monitoring {self.active_symbol} | Max Concurrency: {self.total_max_open} positions "
@@ -286,8 +292,30 @@ class GoldTradingBot:
         self.logger.info(report)
         self.notifier.notify_heartbeat(report)
 
+    def _handle_connection_loss(self):
+        """
+        Self-healing connection recovery watchdog.
+        When internet or MT5 is disrupted, polls connectivity and reconnects automatically.
+        """
+        self.logger.warning("[CONNECTION DISRUPTION] Network or MT5 connection dropped! Entering self-healing recovery loop...")
+        candidates = self.config.get("symbols", {}).get("candidates", ["XAUUSDm", "XAUUSD"])
+        retry_count = 0
+        while self.is_running:
+            retry_count += 1
+            time.sleep(3)
+            self.logger.info(f"[CONNECTION RECOVERY] Attempting reconnect #{retry_count}...")
+            if self.connector.reconnect(candidate_symbols=candidates):
+                self.active_symbol = self.connector.connected_symbol
+                self.logger.info("[CONNECTION RECOVERY SUCCESS] Internet and MT5 re-established! Resuming 24/7 trading.")
+                break
+
     def _tick_cycle(self):
         """Unified tick execution: manages active profits, checks circuit breakers, and runs both engines."""
+        # Connection Health Check (Auto-recovery on network/MT5 drop)
+        if not self.connector.is_connected():
+            self._handle_connection_loss()
+            return
+
         acc = self.connector.get_account_summary()
         if not acc:
             return
@@ -308,15 +336,19 @@ class GoldTradingBot:
 
         # Circuit Breakers & Daily Limits (Fix 15 & Fix 30)
         can_trade, breaker_reason = self.risk_manager.check_circuit_breakers(equity)
+        if self.is_manually_paused:
+            can_trade = False
+            breaker_reason = "Manual Telegram /pause command active"
+
+        # Session Filter & Dynamic Tuning Check (Fix 28)
+        session_ok, session_name, session_reason = self.risk_manager.is_session_allowed()
+        session_tuning = self.risk_manager.get_session_tuning_params()
 
         # Spread Safety Check (Fix 25)
         spread_ok, current_spread, spread_reason = self.risk_manager.check_spread_allowed(self.active_symbol)
 
         # News Blackout Window Check (Fix 27)
         in_news, news_reason = self.risk_manager.is_in_news_blackout()
-
-        # Session Filter Check (Fix 28)
-        session_ok, session_name, session_reason = self.risk_manager.is_session_allowed()
 
         # Periodic Quick 1-Minute Heartbeat
         if (now - self.last_quick_heartbeat_time) >= self.quick_heartbeat_interval:
@@ -503,7 +535,12 @@ class GoldTradingBot:
         if self.m1_scalper.enabled:
             in_cd_s, cd_msg_s = self.risk_manager.is_module_in_cooldown(self.executor.magic_scalper)
             require_daily_align = self.m1_scalper.scalp_cfg.get("require_daily_trend_alignment", False)
-            sig_s, entry_s, sl_s, tp_s, candle_id_s, reason_s, trend_context_s, latest_bar_time, no_trade_reason = self.m1_scalper.generate_scalp_signal(self.active_symbol)
+            sig_s, entry_s, sl_s, tp_s, candle_id_s, reason_s, trend_context_s, latest_bar_time, no_trade_reason = (
+                self.m1_scalper.scan_for_scalp_candidates(
+                    self.active_symbol,
+                    quality_threshold=session_tuning.get("quality_score_threshold", 50)
+                )
+            )
 
             # Fix 19 & Fix 20: Mandatory Decision Logging on Every M1 Candle Close
             if latest_bar_time and latest_bar_time != self.last_logged_scalp_bar:
@@ -571,7 +608,7 @@ class GoldTradingBot:
                             f"reason: Max Scalper positions ({len(scalper_positions)}/{self.max_scalper}) reached."
                         )
                     else:
-                        # Fix 7 & 12: Dynamic Position Sizing with Shared Risk Budget Awareness
+                        # Fix 7 & 12 & Auto-Compounding: Dynamic Position Sizing
                         lot_size_s = self.risk_manager.calculate_lot_size(
                             self.active_symbol, entry_s, sl_s, equity, open_trades_count=len(all_positions)
                         )
@@ -583,6 +620,7 @@ class GoldTradingBot:
                         if not opp_ok_s:
                             self.logger.info(f"[SIGNAL SKIPPED FIX 11] Scalp {candle_id_s} ({sig_s}) skipped — {opp_msg_s}")
                         else:
+                            # Fix 4: Immediate execution with zero artificial delay
                             t_send_start = time.time()
                             ticket_s = self.executor.execute_market_order(
                                 symbol=self.active_symbol,
@@ -610,9 +648,25 @@ class GoldTradingBot:
                                 )
                                 self.logger.info(f"[ENGINE 2 EXECUTED] #{ticket_s} ({lot_size_s} lots, Magic: {self.executor.magic_scalper}) | {reason_s}")
 
+        # Step 4: Export real-time visual dashboard state
+        all_positions_final = self.executor.get_open_positions(self.active_symbol)
+        perf = self.risk_manager.get_module_performance_summary()
+        cb_status = self.risk_manager.get_circuit_breaker_status()
+        self.dashboard_exporter.export_data(
+            symbol=self.active_symbol,
+            account_summary=acc,
+            all_positions=all_positions_final,
+            daily_perf=perf,
+            circuit_status=cb_status,
+            active_session=session_name,
+            daily_trend=daily_trend,
+            trend_reason=trend_reason,
+        )
+
     def stop(self):
         """Cleans up and terminates the bot safely."""
         self.is_running = False
+        self.notifier.stop_command_poller()
         self.connector.shutdown()
         self.logger.info("Gold Trading Bot stopped safely.")
 

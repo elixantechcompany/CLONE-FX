@@ -120,7 +120,67 @@ class MT5Connector:
             "currency": acc.currency,
         }
 
+    def is_connected(self) -> bool:
+        """Checks if MT5 terminal is actively running, initialized, and connected to the trade server."""
+        try:
+            terminal_info = mt5.terminal_info()
+            if terminal_info is None or not getattr(terminal_info, "connected", False):
+                return False
+            account_info = mt5.account_info()
+            return account_info is not None
+        except Exception:
+            return False
+
+    @staticmethod
+    def check_internet(host: str = "8.8.8.8", port: int = 53, timeout: float = 2.0) -> bool:
+        """Verifies if the host machine has active internet connectivity."""
+        import socket
+        try:
+            socket.setdefaulttimeout(timeout)
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((host, port))
+            return True
+        except Exception:
+            try:
+                # Fallback to Cloudflare DNS
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.connect(("1.1.1.1", 53))
+                return True
+            except Exception:
+                return False
+
+    def reconnect(self, candidate_symbols: Optional[list] = None) -> bool:
+        """
+        Attempts a full teardown and recovery cycle after internet disruption or terminal drop.
+        Waits for internet, re-initializes MT5, re-authorizes account, and re-resolves symbol.
+        """
+        logger.warning("[AUTO-RECONNECT] Attempting to restore MT5 & internet connection...")
+        try:
+            mt5.shutdown()
+        except Exception:
+            pass
+
+        if not self.check_internet():
+            logger.warning("[AUTO-RECONNECT] Internet connection is currently down. Waiting for network recovery...")
+            return False
+
+        if not self.initialize():
+            logger.warning("[AUTO-RECONNECT] MT5 initialization failed. Will retry shortly...")
+            return False
+
+        if candidate_symbols:
+            resolved = self.resolve_symbol(candidate_symbols)
+            if not resolved:
+                logger.warning("[AUTO-RECONNECT] Could not re-resolve gold symbol yet.")
+                return False
+
+        logger.info("[AUTO-RECONNECT SUCCESS] Connection successfully restored and verified!")
+        return True
+
     def shutdown(self):
         """Disconnects and cleanly shuts down the MT5 Python interface."""
         logger.info("Shutting down MT5 connection...")
-        mt5.shutdown()
+        try:
+            mt5.shutdown()
+        except Exception:
+            pass

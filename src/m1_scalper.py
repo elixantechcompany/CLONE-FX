@@ -97,6 +97,7 @@ class M1Scalper:
         pattern_lbl: str,
         current_spread: int,
         atr: float,
+        quality_threshold: Optional[int] = None,
     ) -> Tuple[int, dict, bool]:
         """
         Fix 29: Graded Trade Quality Scoring Engine (0 - 100 points).
@@ -172,12 +173,13 @@ class M1Scalper:
             "atr": s_atr,
             "total": total_score,
         }
-        passed = total_score >= self.min_quality_score
+        threshold = quality_threshold if quality_threshold is not None else self.min_quality_score
+        passed = total_score >= threshold
         status_str = "ACCEPTED" if passed else "REJECTED (Score < Threshold)"
         logger.info(
             f"[QUALITY SCORE FIX 29] Scalp Candidate {tf_name} ({sig}) -> Score: {total_score}/100 "
             f"[Trend: {s_trend}/30, Momentum: {s_mom}/25, Candle: {s_candle}/25, Spread: {s_spread}/10, ATR: {s_atr}/10] | "
-            f"Threshold: {self.min_quality_score}/100 -> {status_str}"
+            f"Threshold: {threshold}/100 -> {status_str}"
         )
         return total_score, breakdown, passed
 
@@ -191,6 +193,7 @@ class M1Scalper:
         trend_ctx: str = "NEUTRAL",
         slope: float = 0.0,
         current_spread: int = 260,
+        quality_threshold: Optional[int] = None,
     ) -> Tuple[Optional[str], float, float, float, Optional[str], str]:
         """
         Evaluates high-probability pullback rejections with Fix 29 graded quality scoring.
@@ -277,10 +280,11 @@ class M1Scalper:
             if rsi_ok_sell:
                 # Fix 29: Graded Quality Score Check
                 score, breakdown, passed = self.calculate_quality_score(
-                    tf_name, "SELL", trend_ctx, slope, rsi, vol_confirmed, pattern_lbl, current_spread, atr
+                    tf_name, "SELL", trend_ctx, slope, rsi, vol_confirmed, pattern_lbl, current_spread, atr, quality_threshold=quality_threshold
                 )
+                eff_threshold = quality_threshold if quality_threshold is not None else self.min_quality_score
                 if not passed:
-                    return None, 0.0, 0.0, 0.0, None, f"Quality score {score}/100 below threshold {self.min_quality_score}"
+                    return None, 0.0, 0.0, 0.0, None, f"Quality score {score}/100 below threshold {eff_threshold}"
 
                 max_chase = max(atr * 1.2, 3.50)
                 chase_dist = prev_bar["close"] - tick.bid
@@ -324,10 +328,11 @@ class M1Scalper:
             if rsi_ok_buy:
                 # Fix 29: Graded Quality Score Check
                 score, breakdown, passed = self.calculate_quality_score(
-                    tf_name, "BUY", trend_ctx, slope, rsi, vol_confirmed, pattern_lbl, current_spread, atr
+                    tf_name, "BUY", trend_ctx, slope, rsi, vol_confirmed, pattern_lbl, current_spread, atr, quality_threshold=quality_threshold
                 )
+                eff_threshold = quality_threshold if quality_threshold is not None else self.min_quality_score
                 if not passed:
-                    return None, 0.0, 0.0, 0.0, None, f"Quality score {score}/100 below threshold {self.min_quality_score}"
+                    return None, 0.0, 0.0, 0.0, None, f"Quality score {score}/100 below threshold {eff_threshold}"
 
                 max_chase = max(atr * 1.2, 3.50)
                 chase_dist = tick.ask - prev_bar["close"]
@@ -347,32 +352,10 @@ class M1Scalper:
 
     def check_momentum_reversal(self, symbol: str, position_type: str) -> Tuple[bool, str]:
         """
-        Checks if market momentum has reversed against an active position on M1.
-        Allows closing trades early to secure profits or prevent full stop-out when market turns.
+        [DEPRECATED PER FIX 33]: Stop-and-reverse / reversal exits are disabled.
+        Trades run strictly to their defined Stop Loss, Take Profit, Breakeven Lock, or Trailing Stop.
         """
-        df = self.fetch_rates(symbol, mt5.TIMEFRAME_M1, count=15)
-        if df is None or len(df) < 5:
-            return False, "Insufficient M1 data"
-
-        df["ema_fast"] = df["close"].ewm(span=self.fast_ema, adjust=False).mean()
-        df["ema_slow"] = df["close"].ewm(span=self.slow_ema, adjust=False).mean()
-        last_bar = df.iloc[-1]
-
-        if position_type == "BUY":
-            # Bearish reversal: Closed below Fast & Slow EMA with strong red body
-            is_bearish = last_bar["close"] < last_bar["open"]
-            crossed_under = last_bar["close"] < last_bar["ema_fast"] and last_bar["ema_fast"] < last_bar["ema_slow"]
-            if is_bearish and crossed_under:
-                return True, f"M1 Bearish Momentum Reversal (Closed {last_bar['close']:.2f} < EMA_Fast {last_bar['ema_fast']:.2f})"
-
-        elif position_type == "SELL":
-            # Bullish reversal: Closed above Fast & Slow EMA with strong green body
-            is_bullish = last_bar["close"] > last_bar["open"]
-            crossed_over = last_bar["close"] > last_bar["ema_fast"] and last_bar["ema_fast"] > last_bar["ema_slow"]
-            if is_bullish and crossed_over:
-                return True, f"M1 Bullish Momentum Reversal (Closed {last_bar['close']:.2f} > EMA_Fast {last_bar['ema_fast']:.2f})"
-
-        return False, "Trend aligned"
+        return False, "Fix 33: Stop-and-reverse disabled"
 
     def get_trend_context(self, symbol: str) -> Tuple[str, str, float]:
         """
@@ -401,17 +384,18 @@ class M1Scalper:
         if close_price > prev_ema and slope > 0.05:
             return "UPTREND", f"{self.trend_tf_str} UPTREND (Price {close_price:.2f} > EMA{self.trend_ema_period} {prev_ema:.2f}, Slope: +{slope:.2f})", slope
 
-        return "NEUTRAL", f"{self.trend_tf_str} NEUTRAL/RANGING (Price {close_price:.2f}, EMA{self.trend_ema_period} {prev_ema:.2f}, Slope: {slope:+.2f})", slope
+        return "NEUTRAL", f"{self.trend_tf_str} NEUTRAL (Price {close_price:.2f} near EMA{self.trend_ema_period} {prev_ema:.2f}, Slope: {slope:.2f})", slope
 
-    def generate_scalp_signal(
-        self, symbol: str
+    def scan_for_scalp_candidates(
+        self,
+        symbol: str,
+        quality_threshold: Optional[int] = None,
     ) -> Tuple[Optional[str], float, float, float, Optional[str], str, str, Optional[str], str]:
         """
-        Fix 19, 20 & 29: Scans M5 and M15 for rapid micro-scalp setups with graded quality scoring
-        and returns explicit candle-by-candle evaluation metadata.
+        Fix 5 & Fix 16: Active multi-timeframe micro-scalper scanning with dynamic session quality thresholds.
         """
-        if not self.enabled:
-            return None, 0.0, 0.0, 0.0, None, "M1 Scalper Disabled", "DISABLED", None, "Module Disabled"
+        if not self.scalp_cfg.get("enabled", True):
+            return None, 0.0, 0.0, 0.0, None, "Scalper module disabled in config", "DISABLED", None, "Disabled"
 
         info = mt5.symbol_info(symbol)
         if info is None:
@@ -433,7 +417,15 @@ class M1Scalper:
                 latest_bar_time = str(df.iloc[-2]["time"])
 
             sig, entry, sl, tp, cid, reason = self.evaluate_tf(
-                symbol, tf_name, tf_const, digits, tick, trend_ctx=trend_ctx, slope=slope, current_spread=current_spread
+                symbol,
+                tf_name,
+                tf_const,
+                digits,
+                tick,
+                trend_ctx=trend_ctx,
+                slope=slope,
+                current_spread=current_spread,
+                quality_threshold=quality_threshold,
             )
             if sig:
                 annotated_reason = f"{reason} | [Context: {trend_reason}]"

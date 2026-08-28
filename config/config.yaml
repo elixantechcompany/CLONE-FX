@@ -71,34 +71,43 @@ m1_scalper:
   max_loss_dollars: 3.50           # Cap max loss to prevent high losses
 
 # ==============================================================================
-# DYNAMIC PROFIT MANAGEMENT & RETRACEMENT PROTECTION (UNIFIED)
+# INTELLIGENT POSITION MANAGEMENT & PROFIT RETENTION
 # ==============================================================================
 profit_management:
-  # Fix 24: Direct Profit Giveback Cap (40% max giveback once peak hits $0.80+)
-  giveback_cap_enabled: true
-  giveback_min_peak_dollars: 0.80      # Enforce giveback cap once peak hits $0.80+
-  giveback_max_pct: 0.40               # Retain at least 60% of peak gains
+  enabled: true
   
-  # Tier 0: Direct Profit Target Closer ($2.00 - $3.50 Automatic Profit Take)
-  auto_take_profit_target_dollars: 2.50 # Direct target take profit ($2.50)
-  auto_take_profit_min_dollars: 1.50    # Close if profit reaches $1.50+ and stalls
+  # Agile R-Multiple Dynamic Profit-Lock Stages (1R = Initial Stop Loss Risk)
+  breakeven_trigger_r: 0.30          # Ultra-fast early breakeven lock at +0.30R
+  breakeven_lock_r: 0.10             # Guaranteed green buffer (+0.10R)
+  tier1_protect_trigger_r: 0.55      # At +0.55R -> Lock +0.30R
+  tier1_protect_lock_r: 0.30
+  tier2_protect_trigger_r: 0.85      # At +0.85R -> Lock +0.55R
+  tier2_protect_lock_r: 0.55
+  tier3_protect_trigger_r: 1.10      # At +1.10R -> Lock +0.80R & Continuous ATR Trailing
+  tier3_protect_lock_r: 0.80
   
-  # Tier 1: Real-World Spread-Safe Breakeven Lock (+0.60+ gain)
-  lock_profit_start_dollars: 0.60      # Move SL to breakeven once profit reaches +$0.60 (spread-safe)
-  breakeven_lock_offset: 0.25          # Lock +$0.25 guaranteed green profit
+  # Multi-Signal Confirmed Reversal & Continuation Thresholds (0 - 100)
+  reversal_exit_threshold: 70        # Reversal Score >= 70 -> Close position immediately
+  reversal_warning_threshold: 50     # Reversal Score 50-69 -> Tighten trailing & giveback
+  continuation_strong_threshold: 60  # Continuation Score >= 60 -> Let runners breathe
   
-  # Tier 2: Positive Profit Retracement Guard (NEVER let profitable orders close with a loss)
-  retrace_guard_min_peak_dollars: 0.50 # Active once trade touches $0.50 peak
-  retrace_guard_max_giveback_pct: 0.35 # Close if profit drops 35% from peak
+  # Dynamic Volatility-Aware Giveback & Peak R Decay (Early Profit Harvesting)
+  giveback_min_peak_r: 0.50          # Start giveback protection once trade touches +0.50R peak
+  giveback_max_r_decay: 0.25         # Bank profit if trade rolls back >0.25R from peak
   
-  # Tier 3: Emergency Capital Shield
-  max_hard_loss_per_trade_dollars: 2.50 # Cap maximum loss per trade
-  max_account_floating_drawdown_dollars: 3.50 # Emergency account-wide shield
+  # Stale Trade Failure Timeout (Bars Held without progress)
+  scalp_timeout_bars: 10             # Close stagnating M1 micro-scalps after 10 bars (10m)
+  musumali_timeout_bars: 20          # Musumali HTF timeout (20 bars)
   
-  # Tier 4: Dynamic Continuous Trailing Stop
+  # Direct Agile Dollar Accumulation Step Locking ($0.50 Accumulation Ratchet)
+  dollar_step_lock_enabled: true
+  dollar_step_size: 0.50             # Switch SL immediately on every accumulation of $0.50
+  dollar_step_buffer: 0.20           # Guaranteed green profit buffer (+0.20 at $0.50 profit)
+  
+  # Dynamic Continuous Trailing Stop
   trailing_enabled: true
-  trailing_trigger_r: 0.8              # Start continuous trailing at +0.8R
-  trailing_distance_dollars: 0.80      # Gold ATR trailing buffer ($0.80)
+  trailing_trigger_r: 0.90           # Continuous ATR trailing begins early at +0.90R
+  trailing_distance_dollars: 0.75    # Gold ATR trailing buffer ($0.75)
 
 # ==============================================================================
 # HARMONY & RISK ALLOCATION SPLIT (FIX 11 & FIX 12)
@@ -109,48 +118,108 @@ harmony_rules:
   total_max_open_positions: 2      # Strict concurrency (Max 2 total across account)
   max_musumali_positions: 1        # Max 1 Musumali trade
   max_scalper_positions: 1         # Max 1 Scalper trade
-  cooldown_seconds_per_trade: 60   # 60-second cooldown after trade close to prevent rapid churning
+  cooldown_seconds_per_trade: 45   # 45-second cooldown after trade close to prevent rapid churning
 
 risk_management:
-  lot_mode: "fixed"                # Fixed micro lots for safety
+  lot_mode: "auto_compound"        # "auto_compound" or "fixed"
   risk_per_trade_percent: 1.5      # Base 1.5% risk per trade
   max_total_account_risk_percent: 6.0 # Total portfolio shared risk ceiling
   fixed_lot_size: 0.01             # Base micro lot
-  max_daily_trades: 40             # Active day trading capacity
-  max_spread_points: 320           # Fix 25: Max allowed spread
-  slippage_points: 25              # Fix 26: Slippage tolerance in broker points
+  max_daily_trades: 50             # Active day trading capacity
+  max_spread_points: 320           # Base max allowed spread
+  slippage_points: 25              # Slippage tolerance in broker points
   
-  # High-Impact Macro News Filter (Disabled for continuous 24/7 responsiveness)
+  # Auto-Compounding Equity Tiers
+  compounding:
+    enabled: true
+    tiers:
+      - min_equity: 0.0
+        max_equity: 60.0
+        lot_size: 0.01
+      - min_equity: 60.0
+        max_equity: 120.0
+        lot_size: 0.02
+      - min_equity: 120.0
+        max_equity: 250.0
+        lot_size: 0.03
+      - min_equity: 250.0
+        max_equity: 500.0
+        lot_size: 0.05
+      - min_equity: 500.0
+        max_equity: 999999.0
+        lot_size: 0.10
+
+  # Session-Specific Strategy & Threshold Tuning
+  session_tuning:
+    enabled: true
+    sessions:
+      "London/NY Overlap":
+        quality_score_threshold: 45
+        max_spread_points: 340
+        rsi_oversold: 25
+        rsi_overbought: 75
+      "London":
+        quality_score_threshold: 50
+        max_spread_points: 320
+        rsi_oversold: 28
+        rsi_overbought: 72
+      "New York":
+        quality_score_threshold: 50
+        max_spread_points: 320
+        rsi_oversold: 28
+        rsi_overbought: 72
+      "Asian":
+        quality_score_threshold: 65
+        max_spread_points: 280
+        rsi_oversold: 32
+        rsi_overbought: 68
+      "Late Asian/Off-Hours":
+        quality_score_threshold: 65
+        max_spread_points: 300
+        rsi_oversold: 30
+        rsi_overbought: 70
+
+  # High-Impact Macro News Filter
   news_blackout_enabled: false
   blackout_before_minutes: 0
   blackout_after_minutes: 0
   
-  # Fix 28: Session Filter & Performance Tagging
+  # Session Filter & Performance Tagging
   session_filter_enabled: true
-  allowed_sessions: ["London", "London/NY Overlap", "New York", "Asian"]
+  allowed_sessions: ["London", "London/NY Overlap", "New York", "Asian", "Late Asian/Off-Hours"]
 
 # ==============================================================================
-# CIRCUIT BREAKERS & EMERGENCY KILL SWITCHES (FIX 17, FIX 30 & FIX 31)
+# PROFESSIONAL CIRCUIT BREAKERS & DRAWDOWN HIERARCHY
 # ==============================================================================
 circuit_breakers:
-  max_daily_drawdown_percent: 50.0 # Halt if daily loss exceeds 50%
-  max_daily_profit_percent: 100.0  # Daily target 100%
-  max_consecutive_losses: 5        # Pause module after 5 genuine consecutive losses
-  consecutive_loss_window_minutes: 20 # Window to detect clustered losses
-  circuit_breaker_cooldown_minutes: 5 # Short 5-minute cooldown before re-enabling entries
+  # Continuous Trading Mode: Do not halt when market is profitable and clear
+  continuous_trading_enabled: true
+  max_daily_profit_percent: 0.0      # 0.0 = Uncapped (let profitable runs continue 24/7)
   
-  # Fix 30: Account-Wide Emergency Equity Kill Switch
-  equity_kill_switch_drop_pct: 50.0 # Hard halt if session equity drops >50% (Micro-account calibrated)
-  equity_floor_dollars: 4.50        # Minimum equity preservation floor
+  # Institutional Daily Drawdown Ladder (Loss Protection)
+  drawdown_warning_pct: 1.5          # Warning alert at 1.5% daily drawdown
+  drawdown_risk_reduction_pct: 2.5   # Cut position size by 50% at 2.5% drawdown
+  drawdown_pause_pct: 3.5            # 30-minute cooling pause at 3.5% drawdown
+  max_daily_drawdown_percent: 5.0    # Hard halt for remainder of UTC day at 5% drawdown
   
-  # Fix 31: Emergency Catastrophic Loss Backstop (Only fires on extreme slippage/gaps)
-  hard_max_loss_per_trade_dollars: 5.00 # High emergency backstop letting normal ATR SL operate
-  hard_max_loss_equity_pct: 25.0        # Emergency backstop capped at 25% of equity
+  max_consecutive_losses: 3          # Module pause after 3 consecutive losses
+  consecutive_loss_window_minutes: 20
+  circuit_breaker_cooldown_minutes: 10
+  
+  # Emergency Catastrophic Backstop (Only fires on extreme slippage/gaps)
+  hard_max_loss_per_trade_dollars: 5.00
+  hard_max_loss_equity_pct: 15.0
 
 notifications:
   telegram_enabled: false          # Set true if Telegram Bot alert is configured
   telegram_bot_token: ""           # e.g. 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
   telegram_chat_id: ""             # e.g. 987654321
+  interactive_commands_enabled: true # Enable /status, /pnl, /pause, /resume, /closeall
+
+dashboard:
+  enabled: true
+  export_interval_seconds: 5       # Auto-export JSON data for live HTML dashboard
+  output_dir: "dashboard"
 
 system:
   poll_interval_seconds: 1
