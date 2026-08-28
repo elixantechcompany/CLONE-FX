@@ -187,8 +187,8 @@ class MusumaliStrategy:
         atr_stop_distance = max(min(atr * self.atr_sl_multiplier, self.max_sl_distance), self.min_sl_distance)
         take_profit_distance = atr_stop_distance * self.risk_reward_ratio
 
-        # Evaluate last 6 closed candles to catch active session sweeps
-        for offset in [-2, -3, -4, -5, -6, -7]:
+        # Evaluate recent closed candles in active session
+        for offset in [-2, -3, -4]:
             if abs(offset) >= len(df):
                 continue
             sweep_bar = df.iloc[offset]
@@ -427,10 +427,10 @@ class MusumaliStrategy:
         return None, 0.0, 0.0, 0.0, None, None, ""
 
     def generate_signal(
-        self, symbol: str
+        self, symbol: str, traded_candle_ids: Optional[set] = None
     ) -> Tuple[Optional[str], float, float, float, Optional[str], Optional[float], str]:
         """
-        Scans across M5, M15, M30, and H1 for high-conviction liquidity sweep setups.
+        Scans across M15, M30, H1, and H4 for high-conviction liquidity sweep setups.
         Enforces Fix 2 Hard Daily Trend Gate.
         """
         today = datetime.date.today()
@@ -454,7 +454,9 @@ class MusumaliStrategy:
             signal, entry, sl, tp, candle_id, zone_id, reason = self.evaluate_musumali_setup_on_timeframe(
                 symbol, tf_name, tf_const, point, digits, daily_trend, trend_reason
             )
-            if signal:
+            if signal and candle_id:
+                if traded_candle_ids and candle_id in traded_candle_ids:
+                    continue  # Already executed on this timeframe candle, scan remaining timeframes
                 return signal, entry, sl, tp, candle_id, zone_id, reason
 
-        return None, 0.0, 0.0, 0.0, None, None, f"Scanning M5/M15/M30/H1 sweeps (Daily Trend Gate: {daily_trend})"
+        return None, 0.0, 0.0, 0.0, None, None, f"Scanning M15/M30/H1/H4 sweeps (Daily Trend Gate: {daily_trend})"

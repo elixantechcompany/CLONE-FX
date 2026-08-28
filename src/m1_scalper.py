@@ -135,22 +135,24 @@ class M1Scalper:
         # CANDLESTICK PATTERN RECOGNITION (TEXTBOOK CHART & CANDLE STRUCTURE)
         # =====================================================================
         # Bullish Patterns
-        is_bull_pinbar = (lower_wick / tot_range >= 0.50) and (upper_wick / tot_range <= 0.25)
-        is_bull_engulfing = (prev_bar["close"] > prev_bar["open"]) and (prev_bar["close"] > prior_bar["high"]) and (body_size >= prior_body * 1.1)
-        is_bull_momentum = (prev_bar["close"] > prev_bar["open"]) and (body_size / tot_range >= 0.55) and (prev_bar["close"] > prev_bar["ema_fast"])
-        is_bull_sweep = (prev_bar["low"] < recent_low) and (prev_bar["close"] > recent_low) and (lower_wick / tot_range >= 0.40)
+        is_bull_pinbar = (lower_wick / tot_range >= 0.35) and (upper_wick / tot_range <= 0.35)
+        is_bull_engulfing = (prev_bar["close"] > prev_bar["open"]) and (prev_bar["close"] >= prior_bar["high"])
+        is_bull_momentum = (prev_bar["close"] > prev_bar["open"]) and (prev_bar["close"] >= prev_bar["ema_fast"])
+        is_bull_pullback = (prev_bar["low"] <= prev_bar["ema_fast"] or prev_bar["low"] <= prev_bar["ema_slow"]) and (prev_bar["close"] > prev_bar["open"])
+        is_bull_sweep = (prev_bar["low"] < recent_low) and (prev_bar["close"] > recent_low) and (lower_wick / tot_range >= 0.30)
 
         # Bearish Patterns
-        is_bear_pinbar = (upper_wick / tot_range >= 0.50) and (lower_wick / tot_range <= 0.25)
-        is_bear_engulfing = (prev_bar["close"] < prev_bar["open"]) and (prev_bar["close"] < prior_bar["low"]) and (body_size >= prior_body * 1.1)
-        is_bear_momentum = (prev_bar["close"] < prev_bar["open"]) and (body_size / tot_range >= 0.55) and (prev_bar["close"] < prev_bar["ema_fast"])
-        is_bear_sweep = (prev_bar["high"] > recent_high) and (prev_bar["close"] < recent_high) and (upper_wick / tot_range >= 0.40)
+        is_bear_pinbar = (upper_wick / tot_range >= 0.35) and (lower_wick / tot_range <= 0.35)
+        is_bear_engulfing = (prev_bar["close"] < prev_bar["open"]) and (prev_bar["close"] <= prior_bar["low"])
+        is_bear_momentum = (prev_bar["close"] < prev_bar["open"]) and (prev_bar["close"] <= prev_bar["ema_fast"])
+        is_bear_pullback = (prev_bar["high"] >= prev_bar["ema_fast"] or prev_bar["high"] >= prev_bar["ema_slow"]) and (prev_bar["close"] < prev_bar["open"])
+        is_bear_sweep = (prev_bar["high"] > recent_high) and (prev_bar["close"] < recent_high) and (upper_wick / tot_range >= 0.30)
 
         # =====================================================================
         # 1. CONFIRMED BEARISH / SELL SETUP
         # =====================================================================
         is_sell_trend = prev_bar["ema_fast"] <= prev_bar["ema_slow"]
-        valid_bear_pattern = is_bear_pinbar or is_bear_engulfing or (is_sell_trend and is_bear_momentum) or is_bear_sweep
+        valid_bear_pattern = is_bear_pinbar or is_bear_engulfing or (is_sell_trend and (is_bear_momentum or is_bear_pullback)) or is_bear_sweep
 
         if valid_bear_pattern:
             # Pattern classification label
@@ -160,34 +162,35 @@ class M1Scalper:
                 pattern_lbl = "Bearish Shooting Star Rejection"
             elif is_bear_engulfing:
                 pattern_lbl = "Bearish Engulfing"
+            elif is_bear_pullback:
+                pattern_lbl = "Bearish EMA Pullback Rejection"
             else:
                 pattern_lbl = "Bearish Trend Momentum"
 
             # Context Check: No selling into oversold RSI extreme (<30) unless strong rejection pinbar
-            rsi_ok_sell = (rsi >= 30.0 and rsi <= 65.0) or (is_bear_pinbar or is_bear_sweep)
+            rsi_ok_sell = (rsi >= 30.0 and rsi <= 68.0) or (is_bear_pinbar or is_bear_sweep)
 
             if rsi_ok_sell:
-                # Trigger Confirmation: Bid cleanly breaks previous bar low within tight 0.20 ATR buffer (No late entries!)
-                if tick.bid <= prev_bar["low"]:
-                    chase_dist = prev_bar["low"] - tick.bid
-                    max_chase = max(atr * 0.20, 0.35)
-                    if chase_dist <= max_chase:
-                        entry = tick.bid
-                        stop_loss = round(entry + sl_dist, digits)
-                        take_profit = round(entry - tp_dist, digits)
-                        candle_id = f"SCALP_SELL_{tf_name}_{c_time_str}"
-                        reason = (
-                            f"[EARLY TRIGGER SELL {tf_name}] Pattern: {pattern_lbl} @ {entry:.2f} (Break: -${chase_dist:.2f}) | "
-                            f"RSI: {rsi:.1f} | ATR({self.atr_period}): ${atr:.2f} | "
-                            f"SL: {stop_loss:.2f} (-${sl_dist:.2f}) | TP: {take_profit:.2f} (+${tp_dist:.2f}) [1:{self.risk_reward_ratio:.1f} R:R]"
-                        )
-                        return "SELL", entry, stop_loss, take_profit, candle_id, reason
+                # Trigger Confirmation: Bid trading at or below previous bar close within reasonable ATR buffer
+                max_chase = max(atr * 0.50, 1.50)
+                chase_dist = prev_bar["close"] - tick.bid
+                if chase_dist >= -0.50 and chase_dist <= max_chase:
+                    entry = tick.bid
+                    stop_loss = round(entry + sl_dist, digits)
+                    take_profit = round(entry - tp_dist, digits)
+                    candle_id = f"SCALP_SELL_{tf_name}_{c_time_str}"
+                    reason = (
+                        f"[EARLY TRIGGER SELL {tf_name}] Pattern: {pattern_lbl} @ {entry:.2f} (Break: -${chase_dist:.2f}) | "
+                        f"RSI: {rsi:.1f} | ATR({self.atr_period}): ${atr:.2f} | "
+                        f"SL: {stop_loss:.2f} (-${sl_dist:.2f}) | TP: {take_profit:.2f} (+${tp_dist:.2f}) [1:{self.risk_reward_ratio:.1f} R:R]"
+                    )
+                    return "SELL", entry, stop_loss, take_profit, candle_id, reason
 
         # =====================================================================
         # 2. CONFIRMED BULLISH / BUY SETUP
         # =====================================================================
         is_buy_trend = prev_bar["ema_fast"] >= prev_bar["ema_slow"]
-        valid_bull_pattern = is_bull_pinbar or is_bull_engulfing or (is_buy_trend and is_bull_momentum) or is_bull_sweep
+        valid_bull_pattern = is_bull_pinbar or is_bull_engulfing or (is_buy_trend and (is_bull_momentum or is_bull_pullback)) or is_bull_sweep
 
         if valid_bull_pattern:
             # Pattern classification label
@@ -197,28 +200,29 @@ class M1Scalper:
                 pattern_lbl = "Bullish Hammer/Pinbar Rejection"
             elif is_bull_engulfing:
                 pattern_lbl = "Bullish Engulfing"
+            elif is_bull_pullback:
+                pattern_lbl = "Bullish EMA Pullback Rejection"
             else:
                 pattern_lbl = "Bullish Trend Momentum"
 
-            # Context Check: No buying into falling knife / oversold crash (<38) unless confirmed hammer/sweep rejection!
-            rsi_ok_buy = (rsi >= 38.0 and rsi <= 70.0) or (is_bull_pinbar or is_bull_sweep)
+            # Context Check: No buying into falling knife / oversold crash (<32) unless confirmed hammer/sweep rejection!
+            rsi_ok_buy = (rsi >= 32.0 and rsi <= 72.0) or (is_bull_pinbar or is_bull_sweep)
 
             if rsi_ok_buy:
-                # Trigger Confirmation: Ask cleanly breaks previous bar high within tight 0.20 ATR buffer (No late entries!)
-                if tick.ask >= prev_bar["high"]:
-                    chase_dist = tick.ask - prev_bar["high"]
-                    max_chase = max(atr * 0.20, 0.35)
-                    if chase_dist <= max_chase:
-                        entry = tick.ask
-                        stop_loss = round(entry - sl_dist, digits)
-                        take_profit = round(entry + tp_dist, digits)
-                        candle_id = f"SCALP_BUY_{tf_name}_{c_time_str}"
-                        reason = (
-                            f"[EARLY TRIGGER BUY {tf_name}] Pattern: {pattern_lbl} @ {entry:.2f} (Break: +${chase_dist:.2f}) | "
-                            f"RSI: {rsi:.1f} | ATR({self.atr_period}): ${atr:.2f} | "
-                            f"SL: {stop_loss:.2f} (-${sl_dist:.2f}) | TP: {take_profit:.2f} (+${tp_dist:.2f}) [1:{self.risk_reward_ratio:.1f} R:R]"
-                        )
-                        return "BUY", entry, stop_loss, take_profit, candle_id, reason
+                # Trigger Confirmation: Ask trading at or above previous bar close within reasonable ATR buffer
+                max_chase = max(atr * 0.50, 1.50)
+                chase_dist = tick.ask - prev_bar["close"]
+                if chase_dist >= -0.50 and chase_dist <= max_chase:
+                    entry = tick.ask
+                    stop_loss = round(entry - sl_dist, digits)
+                    take_profit = round(entry + tp_dist, digits)
+                    candle_id = f"SCALP_BUY_{tf_name}_{c_time_str}"
+                    reason = (
+                        f"[EARLY TRIGGER BUY {tf_name}] Pattern: {pattern_lbl} @ {entry:.2f} (Break: +${chase_dist:.2f}) | "
+                        f"RSI: {rsi:.1f} | ATR({self.atr_period}): ${atr:.2f} | "
+                        f"SL: {stop_loss:.2f} (-${sl_dist:.2f}) | TP: {take_profit:.2f} (+${tp_dist:.2f}) [1:{self.risk_reward_ratio:.1f} R:R]"
+                    )
+                    return "BUY", entry, stop_loss, take_profit, candle_id, reason
 
         return None, 0.0, 0.0, 0.0, None, f"No candlestick pattern on {tf_name} ({c_time_str})"
 

@@ -262,7 +262,9 @@ class GoldTradingBot:
             h1_bar_time = str(pd.to_datetime(rates_h1[-2]["time"], unit="s")) if (rates_h1 is not None and len(rates_h1) >= 2) else None
 
             t_sig_start = time.time()
-            sig, entry, sl, tp, candle_id, zone_id, setup_reason = self.musumali_strategy.generate_signal(self.active_symbol)
+            sig, entry, sl, tp, candle_id, zone_id, setup_reason = self.musumali_strategy.generate_signal(
+                self.active_symbol, traded_candle_ids=self.traded_candle_ids
+            )
             t_sig_done = time.time()
 
             # Fix 20: Mandatory Decision Logging on Every H1 Candle Close
