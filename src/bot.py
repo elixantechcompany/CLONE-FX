@@ -174,7 +174,7 @@ class GoldTradingBot:
         Provides full visibility into net exposure at all times without silent conflicts.
         """
         opposing_type = "SELL" if new_sig == "BUY" else "BUY"
-        opposing_positions = [p for p in other_positions if p["type"] == opposing_type]
+        opposing_positions = [p for p in all_positions if p["type"] == opposing_type]
 
         total_long = sum(p["volume"] for p in all_positions if p["type"] == "BUY") + (new_lots if new_sig == "BUY" else 0.0)
         total_short = sum(p["volume"] for p in all_positions if p["type"] == "SELL") + (new_lots if new_sig == "SELL" else 0.0)

@@ -49,15 +49,15 @@ zone_management:
 # ==============================================================================
 m1_scalper:
   enabled: true
-  bidirectional: true              # Full Bidirectional Trading: Execute both BUY and SELL opportunities
+  bidirectional: false             # Strict Trend Direction: Trade ONLY in the direction of the dominant M15 trend
   require_daily_trend_alignment: false # Decoupled from macro Daily gate
-  trend_filter_enabled: false      # Bidirectional execution across all market conditions
+  trend_filter_enabled: true       # Enforce strict M15 trend alignment (SELL in Downtrend, BUY in Uptrend)
   trend_timeframe: "M15"           # Reference M15 trend context
   trend_ema_period: 20
   trend_slope_bars: 3
   magic_number: 1001               # Fix 10: Unique Magic Number for M1_Scalp
   timeframes: ["M1", "M5"]         # High-frequency M1 & M5 scalping
-  max_concurrent_scalp: 2          # Up to 2 scalper positions
+  max_concurrent_scalp: 1          # Micro-account: Max 1 active scalper position
   fast_ema: 7
   slow_ema: 16
   sweep_lookback_bars: 8
@@ -98,12 +98,12 @@ profit_management:
 # HARMONY & RISK ALLOCATION SPLIT (FIX 11 & FIX 12)
 # ==============================================================================
 harmony_rules:
-  prevent_opposing_trades: false   # Fix 11: Net exposure logging active, optional hard block
-  max_opposing_lot_exposure: 0.05  # Fix 11: Cap max opposing lot exposure
-  total_max_open_positions: 3      # High-performance limit (up to 3 confirmed trades)
-  max_musumali_positions: 2        # Max 2 Musumali trades
-  max_scalper_positions: 2         # Max 2 Scalper trades
-  cooldown_seconds_per_trade: 0    # Fix 5: Continuous 24/5 candle scanning
+  prevent_opposing_trades: true    # Fix 11: STRICTLY PREVENT HEDGING (Never BUY and SELL simultaneously)
+  max_opposing_lot_exposure: 0.0   # Zero opposing lot exposure allowed
+  total_max_open_positions: 2      # Strict concurrency (Max 2 total across account)
+  max_musumali_positions: 1        # Max 1 Musumali trade
+  max_scalper_positions: 1         # Max 1 Scalper trade
+  cooldown_seconds_per_trade: 0    # Continuous scanning
 
 risk_management:
   lot_mode: "fixed"                # Fixed micro lots for safety
