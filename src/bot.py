@@ -292,6 +292,8 @@ class GoldTradingBot:
                     self.logger.info(
                         f"[MUSUMALI HTF CANDLE DECISION FIX 20] H1 Bar: {h1_bar_time} | Daily Gate: {daily_trend} | "
                         f"Status: ACTIVE | Action: SKIPPED | Reason: No H1 liquidity sweep or confirmation break"
+                    )
+
             trade_cooldown = self.harmony_cfg.get("cooldown_seconds_per_trade", 0)
             time_since_trade = time.time() - self.last_trade_execution_time
             in_trade_cooldown = (trade_cooldown > 0 and time_since_trade < trade_cooldown)
