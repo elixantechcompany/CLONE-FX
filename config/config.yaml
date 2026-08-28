@@ -75,21 +75,25 @@ m1_scalper:
 profit_management:
   # Tier 0: Hard Emergency Loss Shield
   max_hard_loss_per_trade_dollars: 2.50 # Dynamic SL handles risk; hard shield cuts at -$2.50
-  max_account_floating_drawdown_dollars: 3.00 # Account-Wide Circuit Breaker: Auto-cuts if total floating loss hits -$3.00
+  max_account_floating_drawdown_dollars: 3.50 # Account-Wide Circuit Breaker: Auto-cuts if total floating loss hits -$3.50
   
-  # Tier 1: Profit Lock starting from $0.50 and above
-  lock_profit_start_dollars: 0.50      # Lock in profits starting from $0.50
-  breakeven_lock_offset: 0.25          # Lock +$0.25 guaranteed profit (covers 260pt spread)
+  # Tier 1: Early Zero-Loss Profit Lock starting from $0.30 and above
+  lock_profit_start_dollars: 0.30      # Lock in profits starting from $0.30 (covers spread + profit)
+  breakeven_lock_offset: 0.15          # Lock +$0.15 guaranteed green profit
   
-  # Tier 2: Rollback Protection starting from $1.00 and above
-  rollback_close_trigger_dollars: 1.00 # Active when trade reaches $1.00 or higher
-  rollback_retrace_tolerance_dollars: 0.25 # Max allowable dollar reduction from peak
+  # Tier 2: Positive Profit Retracement Guard (Never let winning trades turn into losses)
+  retrace_guard_min_peak_dollars: 0.30 # Active as soon as trade touches $0.30 peak
+  retrace_guard_max_giveback_pct: 0.40 # Close if profit drops 40% from peak
+  
+  # Tier 3: Rollback Protection starting from $0.75 and above
+  rollback_close_trigger_dollars: 0.75 # Active when trade reaches $0.75 or higher
+  rollback_retrace_tolerance_dollars: 0.20 # Max allowable dollar reduction from peak
   rollback_giveback_max_pct: 0.25      # Max 25% reduction from peak before checking continuation
   
-  # Tier 3: Dynamic Trailing Stop from +0.8R
+  # Tier 4: Dynamic Continuous Trailing Stop from +0.6R
   trailing_enabled: true
-  trailing_trigger_r: 0.8              # Start continuous trailing at +0.8R
-  trailing_distance_dollars: 0.80      # Gold ATR trailing buffer ($0.80)
+  trailing_trigger_r: 0.6              # Start continuous trailing early at +0.6R
+  trailing_distance_dollars: 0.60      # Tight Gold trailing buffer ($0.60)
 
 # ==============================================================================
 # HARMONY & RISK ALLOCATION SPLIT (FIX 11 & FIX 12)
