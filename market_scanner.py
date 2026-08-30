@@ -38,20 +38,20 @@ def scan_live():
     print(f"\n[1] Current Market Price for {sym}:")
     print(f"    * Bid: {tick.bid:.2f} | Ask: {tick.ask:.2f} | Spread: {(tick.ask - tick.bid)*1000:.1f} pts")
 
-    print(f"\n[2] Component 1: Daily Higher-Timeframe Trend Gate (D1):")
-    trend, trend_reason = strategy.get_daily_market_trend(sym)
-    print(f"    * Evaluated Daily Bias: {trend}")
+    print(f"\n[2] Component 1: Daily Higher-Timeframe Trend Gate (D1/H4):")
+    trend, trend_reason = strategy.get_higher_timeframe_trend(sym)
+    print(f"    * Evaluated Bias: {trend}")
     print(f"    * Reason: {trend_reason}")
     if trend == "RANGING":
-        print("    -> Market is currently ranging/consolidating on Daily.")
+        print("    -> Market is currently ranging/consolidating.")
         print("       Strategy Rule: Hard Gate Active (NO TRADES permitted to protect capital).")
     elif trend in ("UPTREND", "DOWNTREND"):
         print(f"    -> Trend is {trend}. Looking ONLY for {'BUY' if trend == 'UPTREND' else 'SELL'} setups.")
 
     print(f"\n[3] Component 2, 3 & 4: Multi-Timeframe Scan & Signal Check:")
-    signal, entry, sl, tp, candle_id, zone_id, reason = strategy.generate_signal(sym)
+    signal, entry, sl, tp, candle_id, zone_id, score, reason = strategy.generate_signal(sym)
     if signal:
-        print(f"    >>> ACTIVE SIGNAL: {signal} @ {entry:.2f} | SL: {sl:.2f} | TP: {tp:.2f}")
+        print(f"    >>> ACTIVE SIGNAL: {signal} @ {entry:.2f} | SL: {sl:.2f} | TP: {tp:.2f} | Score: {score}/100")
         print(f"        Setup Reason: {reason}")
     else:
         print(f"    >>> Status: STANDBY / MONITORING ({reason})")

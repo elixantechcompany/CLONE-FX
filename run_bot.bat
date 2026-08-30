@@ -1,9 +1,13 @@
 @echo off
-title Musumali Gold 24/7 Trading Bot (Exness MT5)
+title Multi-Account Bot Engine (4 Accounts | Dual Engines XAUUSD & BTCUSD)
 echo ===================================================================
-echo   Starting Musumali Gold Automated 24/7 Trading Bot
-echo   - 24/7 Continuous Market Analysis
-echo   - Take Profit: Strategy TP or +$2.00 Dollar Target Closer
+echo   MULTI-ACCOUNT INSTITUTIONAL TRADING ENGINE
+echo   - Account A: $1,000 BrightFunded (Independent, Target +$100, Stop -$25)
+echo   - Account B: $1,000 BrightFunded (Independent, Target +$100, Stop -$25)
+echo   - Account C: $20.00 Personal Account (Copy Master, Stop -$3)
+echo   - Account D: $20.00 Personal Account (Copy Follower, 8-Step Safety)
+echo   - Shared Strategies: Musumali Sweeps (2001) & Agile Micro-Scalper (1001)
+echo   - Dual Symbols: Gold (XAUUSD) & Bitcoin (BTCUSD)
 echo ===================================================================
 echo.
 

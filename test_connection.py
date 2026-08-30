@@ -12,7 +12,7 @@ from src.connection import MT5Connector
 
 def test():
     print("=" * 60)
-    print("   TESTING EXNESS MT5 CONNECTION")
+    print("   TESTING BRIGHTFUNDED MT5 CONNECTION")
     print("=" * 60)
 
     load_dotenv("config/.env")
@@ -35,11 +35,12 @@ def test():
     for k, v in summary.items():
         print(f"  * {k.capitalize()}: {v}")
 
-    print("\n[3/3] Checking active Gold symbols on Exness...")
-    candidates = config.get("symbols", {}).get("candidates", ["XAUUSD", "XAUUSDm"])
+    print("\n[3/3] Checking active Gold symbols on Broker...")
+    sym_cfg = config.get("symbols", {}).get("symbol_settings", {}).get("XAUUSD", {})
+    candidates = sym_cfg.get("candidates", ["XAUUSD", "XAUUSDm", "XAUUSD_i", "XAUUSDz", "GOLD"])
     sym = connector.resolve_symbol(candidates)
     if sym:
-        info = connector.symbol_info
+        info = connector.get_symbol_specs(sym)
         print(f"[OK] Found active Gold symbol: {sym}")
         print(f"  * Digits: {info.digits}")
         print(f"  * Point: {info.point}")

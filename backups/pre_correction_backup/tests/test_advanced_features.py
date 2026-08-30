@@ -25,14 +25,26 @@ class TestAdvancedFeatures(unittest.TestCase):
         self.risk_manager = RiskManager(self.config, self.mock_connector)
 
     def test_auto_compounding_tiers(self):
-        """Validates that lot sizes scale accurately based on quality score and risk limits."""
-        # Baseline $1000 account, Gold SL distance $3.00 (e.g. 2500 to 2497)
-        lots_85 = self.risk_manager.calculate_lot_size("XAUUSDm", 2500.0, 2497.0, equity=1000.0, quality_score=85)
-        lots_55 = self.risk_manager.calculate_lot_size("XAUUSDm", 2500.0, 2497.0, equity=1000.0, quality_score=55)
-        self.assertGreater(lots_85, 0.0)
-        self.assertGreater(lots_55, 0.0)
-        self.assertGreaterEqual(lots_85, lots_55)
+        """Validates that lot sizes scale accurately across equity tiers."""
+        # Tier 1: $0 - $60 -> 0.01 lots
+        lots_40 = self.risk_manager.calculate_lot_size("XAUUSDm", 4550.0, 4545.0, equity=40.0)
+        self.assertEqual(lots_40, 0.01)
 
+        # Tier 2: $60 - $120 -> 0.02 lots
+        lots_80 = self.risk_manager.calculate_lot_size("XAUUSDm", 4550.0, 4545.0, equity=80.0)
+        self.assertEqual(lots_80, 0.02)
+
+        # Tier 3: $120 - $250 -> 0.03 lots
+        lots_180 = self.risk_manager.calculate_lot_size("XAUUSDm", 4550.0, 4545.0, equity=180.0)
+        self.assertEqual(lots_180, 0.03)
+
+        # Tier 4: $250 - $500 -> 0.05 lots
+        lots_350 = self.risk_manager.calculate_lot_size("XAUUSDm", 4550.0, 4545.0, equity=350.0)
+        self.assertEqual(lots_350, 0.05)
+
+        # Tier 5: $500+ -> 0.10 lots
+        lots_800 = self.risk_manager.calculate_lot_size("XAUUSDm", 4550.0, 4545.0, equity=800.0)
+        self.assertEqual(lots_800, 0.10)
 
     def test_session_tuning_params(self):
         """Validates session-specific dynamic tuning."""

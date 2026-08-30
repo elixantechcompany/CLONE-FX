@@ -38,7 +38,7 @@ def place_test_demo_trade():
     executor = OrderExecutor(config)
 
     # Place a test BUY order with 50 point SL and 100 point TP
-    info = connector.symbol_info
+    info = connector.get_symbol_specs(sym)
     point = info.point
     digits = info.digits
 

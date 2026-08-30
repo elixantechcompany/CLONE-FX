@@ -3,15 +3,14 @@ Order Execution and Trade Management Engine (Multi-Symbol & Multi-Account Suppor
 Enforces:
   1. Mandatory Take Profit (TP) and Stop Loss (SL) on every order.
   2. Mandatory Post-Execution SL Verification & Fail-Safe Auto-Close.
-  3. Strict Account Tagging & Identification ([ACCOUNT_A], [ACCOUNT_B], [ACCOUNT_C], [ACCOUNT_D]).
+  3. Composite Trade Identification (Prevents duplicate executions).
   4. Real-Time Dynamic Trade Management & Closed Trade Feedback.
-  5. Copy Engine Event Hooks (Open, SL/TP Modify, Partial Close, Full Close).
 """
 
 import logging
 import re
 import time
-from typing import Dict, List, Optional, Union, Tuple, Any, Callable
+from typing import Dict, List, Optional, Union, Tuple, Any
 import MetaTrader5 as mt5
 import pandas as pd
 
@@ -21,11 +20,11 @@ logger = logging.getLogger("GoldBot.Execution")
 
 
 class OrderExecutor:
-    def __init__(self, config: dict, connector, risk_manager=None, account_id: str = "account_a"):
+    def __init__(self, config: dict, connector, risk_manager=None, account_id: str = "account_1"):
         self.config = config
         self.connector = connector
         self.risk_manager = risk_manager
-        self.account_id = account_id.lower()
+        self.account_id = account_id
 
         self.magic_musumali = config.get("musumali_strategy", {}).get("magic_number", 2001)
         self.magic_scalper = config.get("m1_scalper", {}).get("magic_number", 1001)
@@ -40,27 +39,12 @@ class OrderExecutor:
         self.ticket_zones: Dict[int, Optional[float]] = {}
         self.known_tickets: Dict[int, dict] = {}
 
-        # Copy Engine & Audit Event Callbacks
-        self.event_callbacks: List[Callable] = []
-
-    def add_event_callback(self, callback: Callable):
-        """Attaches an event listener callback (e.g. CopyTradingEngine)."""
-        self.event_callbacks.append(callback)
-
-    def _emit_event(self, event_type: str, data: dict):
-        """Emits trade lifecycle event to all registered listeners."""
-        for cb in self.event_callbacks:
-            try:
-                cb(self.account_id, event_type, data)
-            except Exception as e:
-                logger.warning(f"[{self.account_id.upper()}] Error in event callback: {e}")
-
     def set_risk_manager(self, risk_manager):
         """Attaches the risk manager for closed trade feedback."""
         self.risk_manager = risk_manager
 
     def get_open_positions(self, symbol: Optional[str] = None, magic: Optional[Union[int, List[int]]] = None) -> List[dict]:
-        """Retrieves currently open positions managed by our bot for this account."""
+        """Retrieves currently open positions managed by our bots for this account."""
         positions = mt5.positions_get(symbol=symbol) if symbol else mt5.positions_get()
         if positions is None:
             return []
@@ -102,13 +86,13 @@ class OrderExecutor:
         """
         info = mt5.symbol_info(symbol)
         if info is None:
-            logger.error(f"[{self.account_id.upper()}] Cannot execute order: Symbol {symbol} info not available.")
+            logger.error(f"[{self.account_id}] Cannot execute order: Symbol {symbol} info not available.")
             return None
 
         digits = info.digits
         tick = mt5.symbol_info_tick(symbol)
         if tick is None:
-            logger.error(f"[{self.account_id.upper()}] Cannot get tick data for {symbol}.")
+            logger.error(f"[{self.account_id}] Cannot get tick data for {symbol}.")
             return None
 
         price = tick.ask if order_type.upper() == "BUY" else tick.bid
@@ -121,6 +105,7 @@ class OrderExecutor:
         result = None
         t_order_sent = time.time()
 
+        # Build clean comment containing trade identity
         clean_comment = f"{comment[:15]}_{self.account_id}"[:31]
 
         for f_mode in filling_candidates:
@@ -140,7 +125,7 @@ class OrderExecutor:
             }
 
             logger.info(
-                f"[{self.account_id.upper()}] Sending {order_type.upper()} {volume} lots on {symbol} @ {price:.2f} | "
+                f"[{self.account_id}] Sending {order_type.upper()} {volume} lots on {symbol} @ {price:.2f} | "
                 f"SL: {sl_rounded:.2f} | TP: {tp_rounded:.2f} | Magic: {used_magic}"
             )
 
@@ -156,7 +141,7 @@ class OrderExecutor:
 
         if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
             err = result.comment if result else str(mt5.last_error())
-            logger.error(f"[{self.account_id.upper()}] Order execution failed with retcode [{result.retcode if result else 'None'}]: {err}")
+            logger.error(f"[{self.account_id}] Order execution failed with retcode [{result.retcode if result else 'None'}]: {err}")
             return None
 
         ticket = result.order
@@ -164,16 +149,19 @@ class OrderExecutor:
         self.peak_profit[ticket] = 0.0
         self.ticket_zones[ticket] = zone_id
 
-        # Mandatory Post-Execution Verification
+        # =====================================================================
+        # MANDATORY POST-EXECUTION VERIFICATION (Directive 42)
+        # =====================================================================
         post_verify_ok = self._verify_post_execution(ticket, symbol, order_type, volume, sl_rounded, used_magic)
         if not post_verify_ok:
             logger.critical(
-                f"[{self.account_id.upper()}] POST-EXECUTION VERIFICATION FAILED FOR TICKET #{ticket}! "
+                f"[{self.account_id}] POST-EXECUTION VERIFICATION FAILED FOR TICKET #{ticket}! "
                 f"Attempting immediate emergency fail-safe close."
             )
             self.close_position(ticket, symbol, reason="PostExecution_Verification_FailSafe")
             return None
 
+        # Register with internal trackers
         risk_dist = abs(fill_price - sl_rounded) if sl_rounded > 0 else (2.0 if "XAU" in symbol else 150.0)
         self.known_tickets[ticket] = {
             "account_id": self.account_id,
@@ -206,24 +194,9 @@ class OrderExecutor:
 
         latency_ms = (t_order_done - t_order_sent) * 1000.0
         logger.info(
-            f"[{self.account_id.upper()}] [ORDER FILLED & VERIFIED] Ticket #{ticket} ({symbol} {order_type} {volume} lots @ {fill_price:.2f}) | "
+            f"[{self.account_id}] [ORDER FILLED & VERIFIED] Ticket #{ticket} ({symbol} {order_type} {volume} lots @ {fill_price:.2f}) | "
             f"SL: {sl_rounded:.2f} | TP: {tp_rounded:.2f} | Latency: {latency_ms:.1f}ms"
         )
-
-        # Emit Open Event
-        self._emit_event("OPEN", {
-            "ticket": ticket,
-            "symbol": symbol,
-            "direction": order_type.upper(),
-            "volume": volume,
-            "entry": fill_price,
-            "sl": sl_rounded,
-            "tp": tp_rounded,
-            "magic": used_magic,
-            "comment": comment,
-            "candle_id": candle_id,
-        })
-
         return ticket
 
     def _verify_post_execution(
@@ -235,112 +208,33 @@ class OrderExecutor:
         expected_sl: float,
         expected_magic: int,
     ) -> bool:
-        """Verifies order filled correctly with valid Stop Loss."""
-        time.sleep(0.1)
+        """
+        Verifies that the broker order has the correct symbol, volume, magic number,
+        and critically: A VALID NON-ZERO STOP LOSS.
+        If SL is missing, attempts an immediate repair.
+        """
+        time.sleep(0.1) # Brief pause for MT5 internal state sync
         positions = mt5.positions_get(ticket=ticket)
         if not positions or len(positions) == 0:
-            logger.warning(f"[{self.account_id.upper()}] Post-verification: Position #{ticket} not found in positions list yet.")
-            return True
+            logger.warning(f"[{self.account_id}] Post-verification: Position #{ticket} not found in positions list yet.")
+            return True # May take a few ms on some brokers
 
         pos = positions[0]
 
+        # Verify symbol and magic
         if pos.symbol != expected_symbol or pos.magic != expected_magic:
-            logger.error(f"[{self.account_id.upper()}] Post-verification mismatch on #{ticket}: Symbol {pos.symbol} vs {expected_symbol}, Magic {pos.magic} vs {expected_magic}")
+            logger.error(f"[{self.account_id}] Post-verification mismatch on #{ticket}: Symbol {pos.symbol} vs {expected_symbol}, Magic {pos.magic} vs {expected_magic}")
             return False
 
+        # CRITICAL: Verify Stop Loss is present
         if pos.sl <= 0:
-            logger.warning(f"[{self.account_id.upper()}] Post-verification: SL missing on Ticket #{ticket}! Attempting immediate correction to {expected_sl:.2f}...")
+            logger.warning(f"[{self.account_id}] Post-verification: SL missing on Ticket #{ticket}! Attempting immediate correction to {expected_sl:.2f}...")
             repaired = self.update_sl_tp(ticket, expected_symbol, expected_sl, pos.tp)
             if not repaired:
-                logger.error(f"[{self.account_id.upper()}] Failed to repair missing SL on Ticket #{ticket}!")
+                logger.error(f"[{self.account_id}] Failed to repair missing SL on Ticket #{ticket}!")
                 return False
-            logger.info(f"[{self.account_id.upper()}] Successfully repaired missing SL on Ticket #{ticket} -> {expected_sl:.2f}")
+            logger.info(f"[{self.account_id}] Successfully repaired missing SL on Ticket #{ticket} -> {expected_sl:.2f}")
 
-        return True
-
-    def modify_position_stops(self, ticket: int, symbol: str, new_sl: float, new_tp: float) -> bool:
-        """Alias for update_sl_tp."""
-        return self.update_sl_tp(ticket, symbol, new_sl, new_tp)
-
-    def update_sl_tp(self, ticket: int, symbol: str, new_sl: float, new_tp: float) -> bool:
-        """Modifies Stop Loss and Take Profit for active position."""
-        info = mt5.symbol_info(symbol)
-        digits = info.digits if info else 2
-
-        sl_val = round(new_sl, digits) if new_sl > 0 else 0.0
-        tp_val = round(new_tp, digits) if new_tp > 0 else 0.0
-
-        request = {
-            "action": mt5.TRADE_ACTION_SLTP,
-            "position": ticket,
-            "symbol": symbol,
-            "sl": sl_val,
-            "tp": tp_val,
-        }
-
-        result = mt5.order_send(request)
-        if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
-            return False
-
-        logger.info(f"[{self.account_id.upper()}] Updated Ticket #{ticket} ({symbol}) -> New SL: {sl_val:.2f}, New TP: {tp_val:.2f}")
-
-        # Emit SL/TP modification event
-        self._emit_event("SL_MODIFY", {
-            "ticket": ticket,
-            "symbol": symbol,
-            "sl": sl_val,
-            "tp": tp_val,
-        })
-        return True
-
-    def partial_close_position(self, ticket: int, symbol: str, close_volume: float, reason: str = "Partial Exit") -> bool:
-        """Closes a portion of an open position."""
-        positions = mt5.positions_get(ticket=ticket)
-        if not positions or len(positions) == 0:
-            return False
-
-        pos = positions[0]
-        if close_volume >= pos.volume:
-            return self.close_position(ticket, symbol, reason=reason)
-
-        info = mt5.symbol_info(symbol)
-        if info is None:
-            return False
-
-        close_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
-        tick = mt5.symbol_info_tick(symbol)
-        price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
-        filling_mode = self._get_supported_filling_mode(info)
-        clean_comment = re.sub(r'[^a-zA-Z0-9_]', '', str(reason))[:20] or "part_close"
-
-        request = {
-            "action": mt5.TRADE_ACTION_DEAL,
-            "position": ticket,
-            "symbol": symbol,
-            "volume": float(close_volume),
-            "type": close_type,
-            "price": price,
-            "deviation": int(self.slippage),
-            "magic": int(pos.magic),
-            "comment": clean_comment,
-            "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": filling_mode,
-        }
-
-        result = mt5.order_send(request)
-        if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
-            err = result.comment if result else str(mt5.last_error())
-            logger.error(f"[{self.account_id.upper()}] Failed partial close on #{ticket}: {err}")
-            return False
-
-        logger.info(f"[{self.account_id.upper()}] PARTIAL CLOSE Ticket #{ticket} ({symbol} {close_volume} lots) | Reason: {reason}")
-
-        self._emit_event("PARTIAL_CLOSE", {
-            "ticket": ticket,
-            "symbol": symbol,
-            "partial_volume": close_volume,
-            "reason": reason,
-        })
         return True
 
     def close_position(self, ticket: int, symbol: str, reason: str = "Target Hit") -> bool:
@@ -378,19 +272,12 @@ class OrderExecutor:
         result = mt5.order_send(request)
         if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
             err = result.comment if result else str(mt5.last_error())
-            logger.error(f"[{self.account_id.upper()}] Failed to close position #{ticket}: {err}")
+            logger.error(f"[{self.account_id}] Failed to close position #{ticket}: {err}")
             return False
 
         profit = pos.profit
-        logger.info(f"[{self.account_id.upper()}] CLOSED Ticket #{ticket} ({symbol} {reason}) | Exit Price: {result.price} | PnL: ${profit:.2f}")
+        logger.info(f"[{self.account_id}] CLOSED Ticket #{ticket} ({symbol} {reason}) | Exit Price: {result.price} | PnL: ${profit:.2f}")
         self._handle_ticket_closed(ticket, profit, reason, magic=pos.magic, symbol=symbol)
-
-        self._emit_event("CLOSE", {
-            "ticket": ticket,
-            "symbol": symbol,
-            "profit": profit,
-            "reason": reason,
-        })
         return True
 
     def _handle_ticket_closed(self, ticket: int, profit: float, reason: str, magic: Optional[int] = None, symbol: Optional[str] = None):
@@ -419,6 +306,26 @@ class OrderExecutor:
 
         self.exit_engine.records.pop(ticket, None)
 
+    def update_sl_tp(self, ticket: int, symbol: str, new_sl: float, new_tp: float) -> bool:
+        """Modifies Stop Loss and Take Profit for active position."""
+        info = mt5.symbol_info(symbol)
+        digits = info.digits if info else 2
+
+        request = {
+            "action": mt5.TRADE_ACTION_SLTP,
+            "position": ticket,
+            "symbol": symbol,
+            "sl": round(new_sl, digits) if new_sl > 0 else 0.0,
+            "tp": round(new_tp, digits) if new_tp > 0 else 0.0,
+        }
+
+        result = mt5.order_send(request)
+        if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+            return False
+
+        logger.info(f"[{self.account_id}] Updated Ticket #{ticket} ({symbol}) -> New SL: {new_sl:.2f}, New TP: {new_tp:.2f}")
+        return True
+
     def manage_active_positions(self, active_symbols: List[str]):
         """Monitors open positions across all active symbols in real-time."""
         for symbol in active_symbols:
@@ -430,8 +337,10 @@ class OrderExecutor:
             positions = self.get_open_positions(symbol)
             active_tickets = {p["ticket"] for p in positions}
 
+            # Cleanup closed tickets
             self.exit_engine.cleanup_closed_tickets(list(active_tickets))
 
+            # Detect broker-side closed tickets
             for ticket in list(self.known_tickets.keys()):
                 t_data = self.known_tickets.get(ticket, {})
                 if t_data.get("symbol") == symbol and ticket not in active_tickets:
@@ -440,13 +349,13 @@ class OrderExecutor:
                     if deals and len(deals) > 0:
                         profit = sum(d.profit for d in deals)
                     b_magic = t_data.get("magic")
-                    logger.info(f"[{self.account_id.upper()}] Detected Broker Close on Ticket #{ticket} (Magic: {b_magic}) | PnL: ${profit:.2f}")
+                    logger.info(f"[{self.account_id}] Detected Broker Close on Ticket #{ticket} (Magic: {b_magic}) | PnL: ${profit:.2f}")
                     self._handle_ticket_closed(ticket, profit, "Broker_TP_SL_Hit", magic=b_magic, symbol=symbol)
-                    self._emit_event("CLOSE", {"ticket": ticket, "symbol": symbol, "profit": profit, "reason": "Broker_TP_SL_Hit"})
 
             if not positions:
                 continue
 
+            # Fetch multi-timeframe candles & tick
             rates_m1 = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M1, 0, 25)
             rates_m5 = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 25)
             rates_m30 = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M30, 0, 25)
@@ -458,6 +367,7 @@ class OrderExecutor:
             df_m30 = pd.DataFrame(rates_m30) if rates_m30 is not None and len(rates_m30) > 0 else None
             df_h1 = pd.DataFrame(rates_h1) if rates_h1 is not None and len(rates_h1) > 0 else None
 
+            # Calculate live ATR
             live_atr = 2.0 if "XAU" in symbol else 150.0
             if df_m5 is not None and len(df_m5) >= 14:
                 tr = pd.concat([
@@ -469,6 +379,7 @@ class OrderExecutor:
 
             for pos in positions:
                 ticket = pos["ticket"]
+                p_type = pos["type"]
                 profit = pos["profit"]
                 current_sl = pos["sl"]
                 current_tp = pos["tp"]
@@ -492,6 +403,7 @@ class OrderExecutor:
 
     @staticmethod
     def _get_supported_filling_mode(symbol_info) -> int:
+        """Determines best supported filling mode for broker."""
         fillings = symbol_info.filling_mode if symbol_info else 0
         if fillings & 2:
             return mt5.ORDER_FILLING_IOC

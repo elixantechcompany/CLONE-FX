@@ -1,17 +1,11 @@
 # ==============================================================================
-# Precision Multi-Account & Multi-Symbol Trading Bot Configuration
+# Precision Multi-Symbol Funded Account Trading Bot Configuration
+# Target: BrightFunded Free $1K Challenge (XAUUSD & BTCUSD)
+# Starting Balance: $1,000.00 | Challenge Target: +$100.00
+# Firm Limits: 3% ($30.00) Daily Drawdown | 6% ($60.00) Trailing Max Drawdown
 # Dual-Engine: Musumali Sweeps (2001) & Agile Micro-Scalper (1001)
-# 
-# EXACT ACCOUNT STRUCTURE (4 ACCOUNTS):
-#   - ACCOUNT A: $1,000 BrightFunded (User's Account) -> INDEPENDENT (Zero Copy)
-#   - ACCOUNT B: $1,000 BrightFunded (Brother's Account) -> INDEPENDENT (Zero Copy)
-#   - ACCOUNT C: $20 Personal Account -> COPY MASTER
-#   - ACCOUNT D: $20 Personal Account -> COPY FOLLOWER (C -> D Only)
 # ==============================================================================
 
-# ==============================================================================
-# 1. BRIGHTFUNDED $1,000 ACCOUNTS PROFILE (Accounts A & B)
-# ==============================================================================
 funded_account:
   enabled: true
   initial_account_size_dollars: 1000.0
@@ -44,108 +38,32 @@ funded_account:
   daily_profit_objective_max: 50.0           # +$50.00: Stop opening unnecessary new trades
 
 # ==============================================================================
-# 2. PERSONAL $20 ACCOUNTS PROFILE (Accounts C & D)
-# ==============================================================================
-personal_account:
-  initial_account_size_dollars: 20.0
-  max_single_trade_risk_dollars: 0.50        # Normal maximum risk per trade ($0.50 = 2.5%)
-  preferred_risk_min_dollars: 0.25           # Floor ($0.25)
-  preferred_risk_max_dollars: 0.50           # Ceiling ($0.50)
-  single_trade_hard_reject_dollars: 1.00     # Strict rejection if 0.01 lot loss exceeds $1.00
-  daily_drawdown_limit_dollars: 3.00         # Daily hard stop at -$3.00
-  daily_profit_objective_dollars: 2.00       # Target: +$2.00
-
-# ==============================================================================
-# 3. EXACT 4-ACCOUNT CONFIGURATION & ROUTING
+# MULTI-ACCOUNT CONFIGURATION (Independent Accounts 1 & 2)
 # ==============================================================================
 accounts:
   enabled: true
-  multi_account_mode: true
+  multi_account_mode: true            # Support Account 1 and Account 2 independently
   account_list:
-    # ACCOUNT A: $1,000 BrightFunded - User's Account (Independent, Shared Strategy, No Copy)
-    - id: "account_a"
-      name: "BrightFunded Account A (My Account)"
-      type: "BRIGHTFUNDED"
-      balance: 1000.0
-      mode: "INDEPENDENT"
-      copy_enabled: false
-      env_login_var: "ACCOUNT_A_LOGIN"
-      env_password_var: "ACCOUNT_A_PASSWORD"
-      env_server_var: "ACCOUNT_A_SERVER"
-      env_path_var: "ACCOUNT_A_MT5_PATH"
-      fallback_login_var: "ACCOUNT_1_LOGIN"
-      fallback_password_var: "ACCOUNT_1_PASSWORD"
-      fallback_server_var: "ACCOUNT_1_SERVER"
+    - id: "account_1"
+      name: "Funded Account 1"
+      env_login_var: "ACCOUNT_1_LOGIN"
+      env_password_var: "ACCOUNT_1_PASSWORD"
+      env_server_var: "ACCOUNT_1_SERVER"
+      fallback_login_var: "MT5_ACCOUNT_NUMBER"
+      fallback_password_var: "MT5_PASSWORD"
+      fallback_server_var: "MT5_SERVER"
+      initial_balance: 1000.0
       is_active: true
-
-    # ACCOUNT B: $1,000 BrightFunded - Brother's Account (Independent, Shared Strategy, No Copy)
-    - id: "account_b"
-      name: "BrightFunded Account B (Brother's Account)"
-      type: "BRIGHTFUNDED"
-      balance: 1000.0
-      mode: "INDEPENDENT"
-      copy_enabled: false
-      env_login_var: "ACCOUNT_B_LOGIN"
-      env_password_var: "ACCOUNT_B_PASSWORD"
-      env_server_var: "ACCOUNT_B_SERVER"
-      env_path_var: "ACCOUNT_B_MT5_PATH"
-      fallback_login_var: "ACCOUNT_2_LOGIN"
-      fallback_password_var: "ACCOUNT_2_PASSWORD"
-      fallback_server_var: "ACCOUNT_2_SERVER"
-      is_active: true
-
-    # ACCOUNT C: $20 Personal Account - Copy Master (Shared Strategy, Generates Copy Events for D)
-    - id: "account_c"
-      name: "Personal Account C ($20 Master)"
-      type: "PERSONAL"
-      balance: 20.0
-      mode: "COPY_MASTER"
-      copy_enabled: true
-      env_login_var: "ACCOUNT_C_LOGIN"
-      env_password_var: "ACCOUNT_C_PASSWORD"
-      env_server_var: "ACCOUNT_C_SERVER"
-      env_path_var: "ACCOUNT_C_MT5_PATH"
-      fallback_login_var: "ACCOUNT_3_LOGIN"
-      fallback_password_var: "ACCOUNT_3_PASSWORD"
-      fallback_server_var: "ACCOUNT_3_SERVER"
-      is_active: true
-
-    # ACCOUNT D: $20 Personal Account - Copy Follower (Copies ONLY Account C after 8-step safety check)
-    - id: "account_d"
-      name: "Personal Account D ($20 Follower)"
-      type: "PERSONAL"
-      balance: 20.0
-      mode: "COPY_FOLLOWER"
-      copy_source: "account_c"
-      copy_enabled: true
-      env_login_var: "ACCOUNT_D_LOGIN"
-      env_password_var: "ACCOUNT_D_PASSWORD"
-      env_server_var: "ACCOUNT_D_SERVER"
-      env_path_var: "ACCOUNT_D_MT5_PATH"
-      fallback_login_var: "ACCOUNT_4_LOGIN"
-      fallback_password_var: "ACCOUNT_4_PASSWORD"
-      fallback_server_var: "ACCOUNT_4_SERVER"
+    - id: "account_2"
+      name: "Funded Account 2"
+      env_login_var: "ACCOUNT_2_LOGIN"
+      env_password_var: "ACCOUNT_2_PASSWORD"
+      env_server_var: "ACCOUNT_2_SERVER"
+      initial_balance: 1000.0
       is_active: true
 
 # ==============================================================================
-# 4. ISOLATED COPY TRADING ENGINE (Strictly Account C -> Account D)
-# ==============================================================================
-copy_engine:
-  enabled: true
-  master_account_id: "account_c"
-  follower_account_id: "account_d"
-  max_follower_risk_dollars: 0.50      # Sizing & risk ceiling on follower ($0.50)
-  hard_reject_risk_dollars: 1.00       # Reject copy if min volume loss exceeds $1.00
-  max_spread_points_gold: 320
-  max_spread_points_btc: 2500
-  slippage_points: 30
-  sync_sl_tp_modifications: true       # Mirror SL and TP adjustments
-  sync_partial_closes: true            # Mirror partial closes
-  sync_full_closes: true               # Mirror position exits
-  auto_reopen_on_master_open: false    # Strictly FALSE: Never reopen if follower closed on own risk
-
-# ==============================================================================
-# 5. TRADING SYMBOLS CONFIGURATION (XAUUSD and BTCUSD)
+# TRADING SYMBOLS CONFIGURATION (XAUUSD and BTCUSD)
 # ==============================================================================
 symbols:
   active_symbols: ["XAUUSD", "BTCUSD"]
@@ -155,11 +73,11 @@ symbols:
       asset_type: "COMMODITY_GOLD"
       max_spread_points: 320
       atr_period: 14
-      min_sl_distance_dollars: 0.40
+      min_sl_distance_dollars: 2.00
       max_sl_distance_dollars: 15.00
       zone_band_points: 2.0
       risk_multiplier: 1.0
-      scalp_min_sl_dollars: 0.40
+      scalp_min_sl_dollars: 1.50
       scalp_max_sl_dollars: 4.50
     BTCUSD:
       candidates: ["BTCUSDm", "BTCUSD", "BTCUSD_i", "BTCUSDz", "BITCOIN", "BTC"]
@@ -174,7 +92,7 @@ symbols:
       scalp_max_sl_dollars: 500.00
 
 # ==============================================================================
-# 6. ENGINE 1: Musumali Institutional Liquidity Sweeps (M30, H1, H4, D1) [Magic: 2001]
+# ENGINE 1: Musumali Institutional Liquidity Sweeps (M30, H1, H4, D1) [Magic: 2001]
 # ==============================================================================
 musumali_strategy:
   enabled: true
@@ -195,7 +113,7 @@ musumali_strategy:
   htf_trend_ema: 200
 
 # ==============================================================================
-# 7. LIQUIDITY ZONE COOLDOWN
+# LIQUIDITY ZONE COOLDOWN
 # ==============================================================================
 zone_management:
   zone_band_points: 2.0
@@ -203,7 +121,7 @@ zone_management:
   zone_cooldown_minutes: 10
 
 # ==============================================================================
-# 8. ENGINE 2: HIGH-CONVICTION MICRO-SCALPER (M1, M5, M15) [Magic: 1001]
+# ENGINE 2: HIGH-CONVICTION MICRO-SCALPER (M1, M5, M15) [Magic: 1001]
 # ==============================================================================
 m1_scalper:
   enabled: true
@@ -225,7 +143,7 @@ m1_scalper:
   risk_reward_ratio: 2.0
 
 # ==============================================================================
-# 9. INTELLIGENT POSITION MANAGEMENT & PROFIT RETENTION
+# INTELLIGENT POSITION MANAGEMENT & PROFIT RETENTION
 # ==============================================================================
 profit_management:
   enabled: true
@@ -261,7 +179,7 @@ profit_management:
   trailing_distance_r: 0.60           # 0.60R trailing distance buffer
 
 # ==============================================================================
-# 10. HARMONY & CONCURRENCY LIMITS (PER ACCOUNT)
+# HARMONY & CONCURRENCY LIMITS (PER ACCOUNT)
 # ==============================================================================
 harmony_rules:
   prevent_opposing_trades: true       # Prevent hedging on same symbol
@@ -273,14 +191,14 @@ harmony_rules:
   cooldown_seconds_per_trade: 30      # 30-second cooldown after trade close
 
 # ==============================================================================
-# 11. RISK MANAGEMENT & SIZING ENGINE (SHARED LOGIC, ISOLATED STATE)
+# RISK MANAGEMENT & SIZING ENGINE (BRIGHTFUNDED 1K PRECISION)
 # ==============================================================================
 risk_management:
   lot_mode: "dynamic_risk"            # STRICTLY DYNAMIC: Never fixed lots
   compounding:
-    enabled: false                    # Disabled in favor of strict monetary risk
+    enabled: false                    # Disabled in favor of strict $2.50-$5.00 monetary risk
   risk_per_trade_percent: 0.40        # 0.40% on $1,000 = $4.00 base (scaled to $2.50-$5.00 by quality)
-  max_total_account_risk_percent: 0.80 # Total portfolio risk ceiling across account
+  max_total_account_risk_percent: 0.80 # Total portfolio risk ceiling across account (max $8.00)
   fixed_lot_size: 0.01                # Micro-lot floor
   max_daily_trades: 12                # Highly selective daily trade cap
   slippage_points: 30                 # Slippage tolerance in broker points
@@ -326,7 +244,7 @@ risk_management:
         max_spread_points_btc: 2400
 
 # ==============================================================================
-# 12. BRIGHTFUNDED CIRCUIT BREAKERS & DRAWDOWN BUFFERS
+# BRIGHTFUNDED CIRCUIT BREAKERS & DRAWDOWN BUFFERS
 # ==============================================================================
 circuit_breakers:
   # Daily Loss States ($1,000 Baseline | $30 Firm Limit)
@@ -362,26 +280,17 @@ circuit_breakers:
   daily_reset_utc_hour: 0               # 00:00 UTC Daily Baseline Reset
   daily_reset_utc_minute: 0
 
-# ==============================================================================
-# 13. NOTIFICATIONS & REMOTE CONTROL
-# ==============================================================================
 notifications:
   telegram_enabled: false             # Set true if Telegram Bot alert is configured
   telegram_bot_token: ""              # Set in config/.env or here
   telegram_chat_id: ""                # Set in config/.env or here
-  interactive_commands_enabled: true  # Enable /status, /pnl, /stop_a, /stop_b, /stop_c, /stop_d, /stop_copy, /stop_all
+  interactive_commands_enabled: true  # Enable /status, /pnl, /pause, /resume, /closeall
 
-# ==============================================================================
-# 14. REAL-TIME DASHBOARD
-# ==============================================================================
 dashboard:
   enabled: true
   export_interval_seconds: 5          # Auto-export JSON data for live HTML dashboard
   output_dir: "dashboard"
 
-# ==============================================================================
-# 15. SYSTEM WATCHDOG & LOGGING
-# ==============================================================================
 system:
   poll_interval_seconds: 1
   heartbeat_interval_seconds: 900     # Comprehensive self-reporting heartbeat every 15 mins

@@ -55,7 +55,7 @@ def debug():
             print(f"    * {tf_name}: ATR(14) = ${atr:.2f} | SL Distance (1.2x) = ${sl_dist:.2f} | TP Target (1:2) = ${tp_dist:.2f}")
 
     # 3. Generate Signal Output
-    sig, entry, sl, tp, candle_id, zone_id, reason = strat.generate_signal(sym)
+    sig, entry, sl, tp, candle_id, zone_id, score, reason = strat.generate_signal(sym)
     print("\n" + "=" * 70)
     if sig:
         print(f">>> [CONFIRMED SIGNAL TRIGGERED]")

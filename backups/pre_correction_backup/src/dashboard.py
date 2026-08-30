@@ -1,7 +1,7 @@
 """
 Real-Time Multi-Symbol & Multi-Account Dashboard Exporter
 Exports live candle data, open positions across accounts, performance metrics,
-copy engine states, and risk ladder states to dashboard/data.json.
+and risk ladder states to dashboard/data.json.
 """
 
 import json
@@ -33,7 +33,6 @@ class DashboardExporter:
         accounts_summary: Optional[Any] = None,
         all_positions: Optional[list] = None,
         active_session: str = "London",
-        copy_engine_status: Optional[dict] = None,
         zones_data: Optional[List[dict]] = None,
         symbol: Optional[str] = None,
         account_summary: Optional[dict] = None,
@@ -63,8 +62,8 @@ class DashboardExporter:
 
         if accounts_summary is None and account_summary is not None:
             accounts_summary = [{
-                "account_id": "account_a",
-                "name": "BrightFunded Account A",
+                "account_id": "account_1",
+                "name": "Funded Account 1",
                 "balance": account_summary.get("balance", 1000.0),
                 "equity": account_summary.get("equity", 1000.0),
                 "daily_pnl": daily_perf.get("total_day_pnl", 0.0) if daily_perf else 0.0,
@@ -100,7 +99,7 @@ class DashboardExporter:
                 ticket = int(p.get("ticket", 0))
                 p_item = {
                     "ticket": ticket,
-                    "account_id": str(p.get("account_id", "ACCOUNT_A")).upper(),
+                    "account_id": str(p.get("account_id", "account_1")),
                     "symbol": str(p.get("symbol", "XAUUSDm")),
                     "type": str(p.get("type", "BUY")),
                     "volume": float(p.get("volume", 0.01)),
@@ -130,7 +129,6 @@ class DashboardExporter:
                     "total_day_pnl": round(float(primary_acc.get("daily_pnl", 0.0)), 2),
                 },
                 "accounts": accounts_summary,
-                "copy_engine": copy_engine_status or {},
                 "positions": pos_list,
                 "candles": candles,
             }

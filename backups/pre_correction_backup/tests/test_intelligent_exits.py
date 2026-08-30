@@ -344,19 +344,17 @@ class TestInstitutionalRiskLadder(unittest.TestCase):
         self.assertTrue(can_trade)
         self.assertEqual(self.rm.risk_reduction_multiplier, 1.0)
 
-        # 1. Simulate -$21 loss on $1000 baseline -> REDUCED_RISK (0.4x)
-        self.rm.record_trade_result(zone_id=None, profit=-21.0, magic=1001, exit_reason="SL_HIT")
-        can_trade, reason = self.rm.check_circuit_breakers(current_equity=979.0)
+        # 1. Simulate -$35 loss on $1000 baseline -> REDUCED_RISK (0.5x)
+        self.rm.record_trade_result(zone_id=None, profit=-35.0, magic=1001, exit_reason="SL_HIT")
+        can_trade, reason = self.rm.check_circuit_breakers(current_equity=965.0)
         self.assertTrue(can_trade)
-        self.assertEqual(self.rm.trading_state, "REDUCED_RISK")
-        self.assertEqual(self.rm.risk_reduction_multiplier, 0.40)
+        self.assertEqual(self.rm.risk_reduction_multiplier, 0.50, "Risk sizing multiplier should be halved in REDUCED_RISK")
 
-        # 2. Simulate further loss reaching -$26 total loss -> DAILY_HARD_STOP
-        self.rm.record_trade_result(zone_id=None, profit=-5.0, magic=1001, exit_reason="SL_HIT")
-        can_trade, reason = self.rm.check_circuit_breakers(current_equity=974.0)
-        self.assertFalse(can_trade, "Trading should halt at -$26 daily loss")
-        self.assertEqual(self.rm.trading_state, "DAILY_HARD_STOP")
-
+        # 2. Simulate further loss reaching -$60 total loss -> HARD_STOP
+        self.rm.record_trade_result(zone_id=None, profit=-25.0, magic=1001, exit_reason="SL_HIT")
+        can_trade, reason = self.rm.check_circuit_breakers(current_equity=940.0)
+        self.assertFalse(can_trade, "Trading should halt at -$60 daily loss")
+        self.assertEqual(self.rm.trading_state, "HARD_STOP")
 
 
 if __name__ == "__main__":
