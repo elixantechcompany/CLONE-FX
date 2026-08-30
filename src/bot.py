@@ -1,5 +1,5 @@
 """
-Funded & Multi-Account Trading Bot Orchestrator
+Funded & Multi-Account Trading Bot Orchestrator (High-Efficiency & Fault-Tolerant)
 Orchestrates:
   1. Strict 4-Account Architecture Isolation:
      - Account A: $1,000 BrightFunded (Independent, Shared Strategy, Zero Copy)
@@ -11,11 +11,12 @@ Orchestrates:
      - Engine 1: Musumali Institutional Sweeps (M30, H1, H4) [Magic: 2001]
      - Engine 2: Agile Micro-Scalper (M1, M5, M15) [Magic: 1001]
   4. Isolated Copy Trading Engine (Account C -> Account D with 8-Step Safety Checks).
-  5. Granular Kill Switches and Independent Drawdown Protections.
+  5. Low-CPU Resource Throttling & Infinite Crash-Resilience Shield.
 """
 
 import logging
 import os
+import gc
 from logging.handlers import RotatingFileHandler
 import time
 import datetime
@@ -67,7 +68,7 @@ class GoldTradingBot:
             self.config = yaml.safe_load(f)
 
         self.logger = setup_logger(self.config.get("system", {}).get("log_level", "INFO"))
-        self.poll_interval = self.config.get("system", {}).get("poll_interval_seconds", 1)
+        self.poll_interval = float(self.config.get("system", {}).get("poll_interval_seconds", 2.0))
 
         # Multi-Account Manager
         self.account_manager = MultiAccountManager(self.config)
@@ -92,11 +93,13 @@ class GoldTradingBot:
         self.last_trade_execution_time = 0.0
         self.is_manually_paused = False
 
-        # Heartbeat timers
+        # Heartbeat and resource maintenance timers
         self.last_quick_heartbeat_time = 0.0
         self.last_comprehensive_heartbeat_time = 0.0
-        self.quick_heartbeat_interval = self.config.get("system", {}).get("quick_heartbeat_interval_seconds", 60)
-        self.comprehensive_heartbeat_interval = self.config.get("system", {}).get("heartbeat_interval_seconds", 900)
+        self.quick_heartbeat_interval = float(self.config.get("system", {}).get("quick_heartbeat_interval_seconds", 60.0))
+        self.comprehensive_heartbeat_interval = float(self.config.get("system", {}).get("heartbeat_interval_seconds", 900.0))
+        self.last_gc_time = time.time()
+        self.tick_counter = 0
 
         self.is_running = False
 
@@ -112,26 +115,44 @@ class GoldTradingBot:
             self.logger.warning(f"Could not load traded candles: {e}")
 
     def _save_traded_candles(self):
-        """Persists traded setup IDs."""
+        """Persists traded setup IDs atomically to prevent corruption."""
         try:
             os.makedirs(os.path.dirname(self.traded_candles_file), exist_ok=True)
-            with open(self.traded_candles_file, "w") as f:
+            temp_file = self.traded_candles_file + ".tmp"
+            with open(temp_file, "w") as f:
                 json.dump({"candle_ids": list(self.traded_candle_ids)[-50:]}, f)
+            os.replace(temp_file, self.traded_candles_file)
         except Exception as e:
             self.logger.warning(f"Could not persist traded candles: {e}")
 
     def initialize_accounts(self) -> bool:
-        """Initializes connectors, risk managers, and order executors for all active accounts."""
+        """Initializes connectors, risk managers, and order executors for all active accounts with retry safety."""
         active_accounts = self.account_manager.get_active_accounts()
         if not active_accounts:
             self.logger.error("No active accounts found in configuration.")
             return False
 
+        successful_connections = 0
+
         for acc in active_accounts:
-            if not acc.connector.initialize():
-                self.logger.warning(f"Waiting for MT5 terminal connection on [{acc.account_id.upper()}]...")
-                while not acc.connector.initialize():
-                    time.sleep(3)
+            max_attempts = 3
+            connected = False
+            for attempt in range(1, max_attempts + 1):
+                if acc.connector.initialize():
+                    connected = True
+                    successful_connections += 1
+                    break
+                self.logger.warning(f"[{acc.account_id.upper()}] MT5 terminal connection attempt {attempt}/{max_attempts} failed...")
+                time.sleep(2)
+
+            if not connected:
+                self.logger.warning(
+                    f"[{acc.account_id.upper()}] Could not connect to MT5 terminal after {max_attempts} attempts. "
+                    f"Account marked as PAUSED. Remaining accounts will continue trading normally."
+                )
+                acc.is_manually_paused = True
+                acc.pause_reason = "Connection Failed on Startup"
+                continue
 
             # Bind isolated RiskManager & OrderExecutor with account profile
             acc.risk_manager = RiskManager(
@@ -158,105 +179,115 @@ class GoldTradingBot:
             # Bot Restart Recovery for this account
             self._recover_account_positions(acc)
 
+        if successful_connections == 0:
+            self.logger.error("Zero accounts could connect to MT5. Please check MT5 terminals and credentials.")
+            return False
+
         return True
 
     def _on_master_account_event(self, account_id: str, event_type: str, data: dict):
         """Callback triggered when Account C (Master) opens, modifies, or closes a position."""
-        if account_id.lower() != "account_c":
-            return
+        try:
+            if account_id.lower() != "account_c":
+                return
 
-        if not self.copy_engine or not self.copy_engine.enabled or self.copy_engine.is_paused:
-            return
+            if not self.copy_engine or not self.copy_engine.enabled or self.copy_engine.is_paused:
+                return
 
-        if event_type == "OPEN":
-            event = self.copy_engine.create_copy_event(
-                origin_account_id=account_id,
-                symbol=data["symbol"],
-                direction=data["direction"],
-                entry=data["entry"],
-                sl=data["sl"],
-                tp=data["tp"],
-                volume=data["volume"],
-                master_ticket=data["ticket"],
-                event_type="OPEN",
-                magic=data.get("magic", 1001),
-            )
-            if event:
-                self.copy_engine.process_copy_event(event)
+            if event_type == "OPEN":
+                event = self.copy_engine.create_copy_event(
+                    origin_account_id=account_id,
+                    symbol=data["symbol"],
+                    direction=data["direction"],
+                    entry=data["entry"],
+                    sl=data["sl"],
+                    tp=data["tp"],
+                    volume=data["volume"],
+                    master_ticket=data["ticket"],
+                    event_type="OPEN",
+                    magic=data.get("magic", 1001),
+                )
+                if event:
+                    self.copy_engine.process_copy_event(event)
 
-        elif event_type in ("SL_MODIFY", "TP_MODIFY"):
-            event = self.copy_engine.create_copy_event(
-                origin_account_id=account_id,
-                symbol=data["symbol"],
-                direction="BUY",
-                entry=0.0,
-                sl=data.get("sl", 0.0),
-                tp=data.get("tp", 0.0),
-                volume=0.0,
-                master_ticket=data["ticket"],
-                event_type=event_type,
-            )
-            if event:
-                self.copy_engine.process_copy_event(event)
+            elif event_type in ("SL_MODIFY", "TP_MODIFY"):
+                event = self.copy_engine.create_copy_event(
+                    origin_account_id=account_id,
+                    symbol=data["symbol"],
+                    direction="BUY",
+                    entry=0.0,
+                    sl=data.get("sl", 0.0),
+                    tp=data.get("tp", 0.0),
+                    volume=0.0,
+                    master_ticket=data["ticket"],
+                    event_type=event_type,
+                )
+                if event:
+                    self.copy_engine.process_copy_event(event)
 
-        elif event_type == "PARTIAL_CLOSE":
-            event = self.copy_engine.create_copy_event(
-                origin_account_id=account_id,
-                symbol=data["symbol"],
-                direction="BUY",
-                entry=0.0,
-                sl=0.0,
-                tp=0.0,
-                volume=0.0,
-                master_ticket=data["ticket"],
-                event_type="PARTIAL_CLOSE",
-                partial_volume=data.get("partial_volume", 0.0),
-            )
-            if event:
-                self.copy_engine.process_copy_event(event)
+            elif event_type == "PARTIAL_CLOSE":
+                event = self.copy_engine.create_copy_event(
+                    origin_account_id=account_id,
+                    symbol=data["symbol"],
+                    direction="BUY",
+                    entry=0.0,
+                    sl=0.0,
+                    tp=0.0,
+                    volume=0.0,
+                    master_ticket=data["ticket"],
+                    event_type="PARTIAL_CLOSE",
+                    partial_volume=data.get("partial_volume", 0.0),
+                )
+                if event:
+                    self.copy_engine.process_copy_event(event)
 
-        elif event_type == "CLOSE":
-            event = self.copy_engine.create_copy_event(
-                origin_account_id=account_id,
-                symbol=data["symbol"],
-                direction="BUY",
-                entry=0.0,
-                sl=0.0,
-                tp=0.0,
-                volume=0.0,
-                master_ticket=data["ticket"],
-                event_type="CLOSE",
-            )
-            if event:
-                self.copy_engine.process_copy_event(event)
+            elif event_type == "CLOSE":
+                event = self.copy_engine.create_copy_event(
+                    origin_account_id=account_id,
+                    symbol=data["symbol"],
+                    direction="BUY",
+                    entry=0.0,
+                    sl=0.0,
+                    tp=0.0,
+                    volume=0.0,
+                    master_ticket=data["ticket"],
+                    event_type="CLOSE",
+                )
+                if event:
+                    self.copy_engine.process_copy_event(event)
+        except Exception as e:
+            self.logger.warning(f"Error in copy event callback: {e}")
 
     def _recover_account_positions(self, acc: AccountContext):
         """Bot Restart Recovery: reconnects, reconstructs risk metrics & resumes active management."""
-        self.logger.info(f"[{acc.account_id.upper()}] [RESTART RECOVERY] Checking for existing open positions...")
-        acc.sync_account_metrics()
+        try:
+            self.logger.info(f"[{acc.account_id.upper()}] [RESTART RECOVERY] Checking for existing open positions...")
+            acc.sync_account_metrics()
 
-        for canonical, broker_sym in self.active_broker_symbols.items():
-            positions = acc.executor.get_open_positions(broker_sym)
-            for pos in positions:
-                ticket = pos["ticket"]
-                self.logger.info(
-                    f"[{acc.account_id.upper()}] [RECOVERED POSITION] Ticket #{ticket} ({broker_sym} {pos['type']} {pos['volume']} lots @ {pos['price_open']:.2f}, "
-                    f"SL: {pos['sl']:.2f}, TP: {pos['tp']:.2f}, P&L: ${pos['profit']:+.2f})"
-                )
-                acc.executor.exit_engine.register_position(
-                    ticket=ticket,
-                    symbol=broker_sym,
-                    pos_type=pos["type"],
-                    volume=pos["volume"],
-                    open_price=pos["price_open"],
-                    sl=pos["sl"],
-                    tp=pos["tp"],
-                    magic=pos["magic"],
-                    account_id=acc.account_id,
-                )
+            for canonical, broker_sym in self.active_broker_symbols.items():
+                positions = acc.executor.get_open_positions(broker_sym)
+                for pos in positions:
+                    ticket = pos["ticket"]
+                    self.logger.info(
+                        f"[{acc.account_id.upper()}] [RECOVERED POSITION] Ticket #{ticket} ({broker_sym} {pos['type']} {pos['volume']} lots @ {pos['price_open']:.2f}, "
+                        f"SL: {pos['sl']:.2f}, TP: {pos['tp']:.2f}, P&L: ${pos['profit']:+.2f})"
+                    )
+                    acc.executor.exit_engine.register_position(
+                        ticket=ticket,
+                        symbol=broker_sym,
+                        pos_type=pos["type"],
+                        volume=pos["volume"],
+                        open_price=pos["price_open"],
+                        sl=pos["sl"],
+                        tp=pos["tp"],
+                        magic=pos["magic"],
+                        account_id=acc.account_id,
+                    )
+        except Exception as e:
+            self.logger.warning(f"[{acc.account_id.upper()}] Recovery warning: {e}")
 
     def start(self):
-        """Starts 24/7 multi-account, multi-symbol trading bot."""
+        """Starts 24/7 multi-account, multi-symbol trading bot with infinite resource-safe loop."""
         self.logger.info("=" * 80)
         self.logger.info("   STARTING MULTI-ACCOUNT PRECISION 24/7 TRADING BOT")
         self.logger.info("   ACCOUNT A: $1,000 BrightFunded (Independent, Zero Copy)")
@@ -264,6 +295,7 @@ class GoldTradingBot:
         self.logger.info("   ACCOUNT C: $20 Personal Account (Copy Master)")
         self.logger.info("   ACCOUNT D: $20 Personal Account (Copy Follower, C -> D Only)")
         self.logger.info("   Engine 1: Musumali Sweeps (Magic #2001) | Engine 2: Micro-Scalper (Magic #1001)")
+        self.logger.info(f"   Poll Interval: {self.poll_interval:.1f}s | CPU Optimization: ENABLED")
         self.logger.info("=" * 80)
 
         if not self.initialize_accounts():
@@ -271,7 +303,10 @@ class GoldTradingBot:
             return
 
         self.is_running = True
-        self.notifier.start_command_poller(self)
+        try:
+            self.notifier.start_command_poller(self)
+        except Exception as e:
+            self.logger.warning(f"Could not start Telegram command poller: {e}")
 
         try:
             while self.is_running:
@@ -279,6 +314,12 @@ class GoldTradingBot:
                     self._tick_cycle()
                 except Exception as e:
                     self.logger.exception(f"Error during tick cycle: {e}")
+
+                # Maintain low memory footprint via periodic garbage collection
+                self.tick_counter += 1
+                if self.tick_counter % 300 == 0:
+                    gc.collect()
+
                 time.sleep(self.poll_interval)
         except KeyboardInterrupt:
             self.logger.info("Shutdown requested by user (Ctrl+C).")
@@ -295,211 +336,237 @@ class GoldTradingBot:
 
         # 1. Update and manage active positions for every account independently
         for acc in active_accounts:
-            if not acc.connector.is_connected():
-                self.logger.warning(f"[{acc.account_id.upper()}] Connection dropped! Reconnecting...")
-                acc.connector.reconnect(self.config.get("symbols", {}))
-                continue
+            try:
+                if not acc.connector.is_connected():
+                    self.logger.warning(f"[{acc.account_id.upper()}] Connection dropped! Reconnecting...")
+                    acc.connector.reconnect(self.config.get("symbols", {}))
+                    continue
 
-            acc.sync_account_metrics()
-            acc.risk_manager.reset_daily_metrics_if_needed(acc.equity)
-            session_name = acc.risk_manager.get_current_trading_session()
+                acc.sync_account_metrics()
+                acc.risk_manager.reset_daily_metrics_if_needed(acc.equity)
+                session_name = acc.risk_manager.get_current_trading_session()
 
-            # Manage active trades through Intelligent Exit Brain
-            acc.executor.manage_active_positions(broker_symbols)
+                # Manage active trades through Intelligent Exit Brain
+                acc.executor.manage_active_positions(broker_symbols)
 
-            # Evaluate circuit breakers & state
-            can_trade, breaker_reason = acc.risk_manager.check_circuit_breakers(acc.equity)
-            if self.is_manually_paused or acc.is_manually_paused:
-                can_trade = False
-                breaker_reason = f"Manual Pause Active ({acc.pause_reason or 'Global'})"
-            acc.trading_state = acc.risk_manager.trading_state
+                # Evaluate circuit breakers & state
+                can_trade, breaker_reason = acc.risk_manager.check_circuit_breakers(acc.equity)
+                if self.is_manually_paused or acc.is_manually_paused:
+                    can_trade = False
+                    breaker_reason = f"Manual Pause Active ({acc.pause_reason or 'Global'})"
+                acc.trading_state = acc.risk_manager.trading_state
+            except Exception as e:
+                self.logger.warning(f"[{acc.account_id.upper()}] Position management cycle warning: {e}")
 
         # 2. Multi-Symbol Scanning across both engines (Shared Strategy Code)
         trade_candidates: List[TradeCandidate] = []
 
         for canonical, broker_sym in self.active_broker_symbols.items():
-            sym_info = mt5.symbol_info(broker_sym)
-            if sym_info is None:
-                continue
-            cur_spread = sym_info.spread
+            try:
+                sym_info = mt5.symbol_info(broker_sym)
+                if sym_info is None:
+                    continue
+                cur_spread = sym_info.spread
 
-            # Engine 1: Musumali Institutional Sweeps (M30, H1)
-            if self.musumali_strategy.strat_cfg.get("enabled", True):
-                sig_m, entry_m, sl_m, tp_m, cid_m, zid_m, score_m, reason_m = self.musumali_strategy.generate_signal(
-                    broker_sym, traded_candle_ids=self.traded_candle_ids
-                )
-                if sig_m and cid_m and cid_m not in self.traded_candle_ids:
-                    trade_candidates.append(TradeCandidate(
-                        symbol=broker_sym,
-                        engine_name="Musumali_Sweep",
-                        magic=self.musumali_strategy.magic_number,
-                        direction=sig_m,
-                        entry=entry_m,
-                        sl=sl_m,
-                        tp=tp_m,
-                        candle_id=cid_m,
-                        zone_id=zid_m,
-                        base_quality_score=score_m,
-                        setup_reason=reason_m,
-                        timeframe="H1",
-                        spread=cur_spread,
-                    ))
+                # Engine 1: Musumali Institutional Sweeps (M30, H1)
+                if self.musumali_strategy.strat_cfg.get("enabled", True):
+                    sig_m, entry_m, sl_m, tp_m, cid_m, zid_m, score_m, reason_m = self.musumali_strategy.generate_signal(
+                        broker_sym, traded_candle_ids=self.traded_candle_ids
+                    )
+                    if sig_m and cid_m and cid_m not in self.traded_candle_ids:
+                        trade_candidates.append(TradeCandidate(
+                            symbol=broker_sym,
+                            engine_name="Musumali_Sweep",
+                            magic=self.musumali_strategy.magic_number,
+                            direction=sig_m,
+                            entry=entry_m,
+                            sl=sl_m,
+                            tp=tp_m,
+                            candle_id=cid_m,
+                            zone_id=zid_m,
+                            base_quality_score=score_m,
+                            setup_reason=reason_m,
+                            timeframe="H1",
+                            spread=cur_spread,
+                        ))
 
-            # Engine 2: Agile Micro-Scalper (M1, M5)
-            if self.m1_scalper.enabled:
-                sig_s, entry_s, sl_s, tp_s, cid_s, score_s, reason_s, _, _, _ = self.m1_scalper.scan_for_scalp_candidates(
-                    broker_sym
-                )
-                if sig_s and cid_s and cid_s not in self.traded_candle_ids:
-                    trade_candidates.append(TradeCandidate(
-                        symbol=broker_sym,
-                        engine_name="M1_Scalp",
-                        magic=self.m1_scalper.magic_number,
-                        direction=sig_s,
-                        entry=entry_s,
-                        sl=sl_s,
-                        tp=tp_s,
-                        candle_id=cid_s,
-                        zone_id=None,
-                        base_quality_score=score_s,
-                        setup_reason=reason_s,
-                        timeframe="M1",
-                        spread=cur_spread,
-                    ))
+                # Engine 2: Agile Micro-Scalper (M1, M5)
+                if self.m1_scalper.enabled:
+                    sig_s, entry_s, sl_s, tp_s, cid_s, score_s, reason_s, _, _, _ = self.m1_scalper.scan_for_scalp_candidates(
+                        broker_sym
+                    )
+                    if sig_s and cid_s and cid_s not in self.traded_candle_ids:
+                        trade_candidates.append(TradeCandidate(
+                            symbol=broker_sym,
+                            engine_name="M1_Scalp",
+                            magic=self.m1_scalper.magic_number,
+                            direction=sig_s,
+                            entry=entry_s,
+                            sl=sl_s,
+                            tp=tp_s,
+                            candle_id=cid_s,
+                            zone_id=None,
+                            base_quality_score=score_s,
+                            setup_reason=reason_s,
+                            timeframe="M1",
+                            spread=cur_spread,
+                        ))
+            except Exception as e:
+                self.logger.warning(f"Market scanner cycle warning for {broker_sym}: {e}")
 
         # 3. Portfolio Signal Conviction Ranking
-        ranked_candidates = self.signal_ranker.rank_candidates(trade_candidates)
+        ranked_candidates = []
+        try:
+            ranked_candidates = self.signal_ranker.rank_candidates(trade_candidates)
+        except Exception as e:
+            self.logger.warning(f"Signal ranker warning: {e}")
+            ranked_candidates = trade_candidates
 
         # 4. Candidate Execution across Strategy Accounts (A, B, C independently)
         for cand in ranked_candidates:
             candle_traded_any = False
             for acc in strategy_accounts:
-                if acc.is_manually_paused or self.is_manually_paused:
-                    continue
+                try:
+                    if acc.is_manually_paused or self.is_manually_paused:
+                        continue
 
-                all_open = acc.executor.get_open_positions()
+                    all_open = acc.executor.get_open_positions()
 
-                # Dynamic Sizing bounded by this account's profile risk limits
-                lot_size = acc.risk_manager.calculate_lot_size(
-                    symbol=cand.symbol,
-                    entry_price=cand.entry,
-                    stop_loss_price=cand.sl,
-                    equity=acc.equity,
-                    quality_score=int(cand.conviction_score),
-                    open_trades_count=len(all_open),
-                )
-
-                if lot_size <= 0.0:
-                    continue
-
-                # Mandatory Pre-Trade Safety Check on exact calculated lot size
-                passed, failures, expected_loss = acc.risk_manager.pre_trade_risk_check(
-                    symbol=cand.symbol,
-                    engine_magic=cand.magic,
-                    order_type=cand.direction,
-                    entry_price=cand.entry,
-                    stop_loss_price=cand.sl,
-                    take_profit_price=cand.tp,
-                    volume=lot_size,
-                    quality_score=int(cand.conviction_score),
-                    all_open_positions=all_open,
-                    equity=acc.equity,
-                    free_margin=acc.free_margin,
-                    candle_id=cand.candle_id,
-                    traded_candle_ids=self.traded_candle_ids,
-                    last_trade_time=self.last_trade_execution_time,
-                )
-
-                if passed:
-                    ticket = acc.executor.execute_market_order(
+                    # Dynamic Sizing bounded by this account's profile risk limits
+                    lot_size = acc.risk_manager.calculate_lot_size(
                         symbol=cand.symbol,
-                        order_type=cand.direction,
-                        volume=lot_size,
-                        sl=cand.sl,
-                        tp=cand.tp,
-                        magic=cand.magic,
-                        comment=cand.engine_name,
-                        zone_id=cand.zone_id,
-                        candle_id=cand.candle_id,
+                        entry_price=cand.entry,
+                        stop_loss_price=cand.sl,
+                        equity=acc.equity,
+                        quality_score=int(cand.conviction_score),
+                        open_trades_count=len(all_open),
                     )
 
-                    if ticket:
-                        candle_traded_any = True
-                        self.last_trade_execution_time = time.time()
-                        acc.risk_manager.record_trade_placed(magic=cand.magic, symbol=cand.symbol)
-                        self.notifier.notify_trade_event(
-                            "TRADE OPENED",
-                            f"Ticket #{ticket} | {cand.symbol} {cand.direction} {lot_size} lots @ {cand.entry:.2f}\n"
-                            f"SL: {cand.sl:.2f} | TP: {cand.tp:.2f} | Risk: ${expected_loss:.2f} | Conviction: {cand.conviction_score}/100\n"
-                            f"Reason: {cand.setup_reason}",
-                            account_id=acc.account_id,
+                    if lot_size <= 0.0:
+                        continue
+
+                    # Mandatory Pre-Trade Safety Check on exact calculated lot size
+                    passed, failures, expected_loss = acc.risk_manager.pre_trade_risk_check(
+                        symbol=cand.symbol,
+                        engine_magic=cand.magic,
+                        order_type=cand.direction,
+                        entry_price=cand.entry,
+                        stop_loss_price=cand.sl,
+                        take_profit_price=cand.tp,
+                        volume=lot_size,
+                        quality_score=int(cand.conviction_score),
+                        all_open_positions=all_open,
+                        equity=acc.equity,
+                        free_margin=acc.free_margin,
+                        candle_id=cand.candle_id,
+                        traded_candle_ids=self.traded_candle_ids,
+                        last_trade_time=self.last_trade_execution_time,
+                    )
+
+                    if passed:
+                        ticket = acc.executor.execute_market_order(
+                            symbol=cand.symbol,
+                            order_type=cand.direction,
+                            volume=lot_size,
+                            sl=cand.sl,
+                            tp=cand.tp,
+                            magic=cand.magic,
+                            comment=cand.engine_name,
+                            zone_id=cand.zone_id,
+                            candle_id=cand.candle_id,
                         )
+
+                        if ticket:
+                            candle_traded_any = True
+                            self.last_trade_execution_time = time.time()
+                            acc.risk_manager.record_trade_placed(magic=cand.magic, symbol=cand.symbol)
+                            self.notifier.notify_trade_event(
+                                "TRADE OPENED",
+                                f"Ticket #{ticket} | {cand.symbol} {cand.direction} {lot_size} lots @ {cand.entry:.2f}\n"
+                                f"SL: {cand.sl:.2f} | TP: {cand.tp:.2f} | Risk: ${expected_loss:.2f} | Conviction: {cand.conviction_score}/100\n"
+                                f"Reason: {cand.setup_reason}",
+                                account_id=acc.account_id,
+                            )
+                except Exception as e:
+                    self.logger.warning(f"[{acc.account_id.upper()}] Execution loop warning: {e}")
 
             if candle_traded_any:
                 self.traded_candle_ids.add(cand.candle_id)
                 self._save_traded_candles()
 
         # 5. Heartbeat & Dashboard Export
-        if (now - self.last_quick_heartbeat_time) >= self.quick_heartbeat_interval:
-            self.last_quick_heartbeat_time = now
+        try:
+            if (now - self.last_quick_heartbeat_time) >= self.quick_heartbeat_interval:
+                self.last_quick_heartbeat_time = now
+                for acc in active_accounts:
+                    positions = acc.executor.get_open_positions()
+                    cb_status = acc.risk_manager.get_circuit_breaker_status(acc.equity)
+                    self.logger.info(
+                        f"[{acc.account_id.upper()} Heartbeat] Equity: ${acc.equity:.2f} | Open Trades: {len(positions)}/2 | {cb_status}"
+                    )
+
+            if (now - self.last_comprehensive_heartbeat_time) >= self.comprehensive_heartbeat_interval:
+                self.last_comprehensive_heartbeat_time = now
+                self._emit_comprehensive_heartbeat(active_accounts, session_name)
+
+            # Export Real-Time Dashboard JSON
+            all_positions_export = []
             for acc in active_accounts:
-                positions = acc.executor.get_open_positions()
-                cb_status = acc.risk_manager.get_circuit_breaker_status(acc.equity)
-                self.logger.info(
-                    f"[{acc.account_id.upper()} Heartbeat] Equity: ${acc.equity:.2f} | Open Trades: {len(positions)}/2 | {cb_status}"
-                )
+                for p in acc.executor.get_open_positions():
+                    p_copy = dict(p)
+                    p_copy["account_id"] = acc.account_id.upper()
+                    all_positions_export.append(p_copy)
 
-        if (now - self.last_comprehensive_heartbeat_time) >= self.comprehensive_heartbeat_interval:
-            self.last_comprehensive_heartbeat_time = now
-            self._emit_comprehensive_heartbeat(active_accounts, session_name)
-
-        # Export Real-Time Dashboard JSON
-        all_positions_export = []
-        for acc in active_accounts:
-            for p in acc.executor.get_open_positions():
-                p_copy = dict(p)
-                p_copy["account_id"] = acc.account_id.upper()
-                all_positions_export.append(p_copy)
-
-        self.dashboard_exporter.export_data(
-            active_symbols=self.active_broker_symbols,
-            accounts_summary=self.account_manager.get_all_summaries(),
-            all_positions=all_positions_export,
-            active_session=session_name,
-            copy_engine_status=self.copy_engine.get_status() if self.copy_engine else None,
-        )
+            self.dashboard_exporter.export_data(
+                active_symbols=self.active_broker_symbols,
+                accounts_summary=self.account_manager.get_all_summaries(),
+                all_positions=all_positions_export,
+                active_session=session_name,
+                copy_engine_status=self.copy_engine.get_status() if self.copy_engine else None,
+            )
+        except Exception as e:
+            self.logger.warning(f"Dashboard/Heartbeat export warning: {e}")
 
     def _emit_comprehensive_heartbeat(self, active_accounts: List[AccountContext], session_name: str):
         """Emits comprehensive multi-account diagnostic report."""
-        now_utc = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        lines = [
-            f"\n{'='*80}",
-            f" [COMPREHENSIVE MULTI-ACCOUNT BOT HEARTBEAT] {now_utc}",
-            f" Active Session: {session_name} | Symbols: {list(self.active_broker_symbols.keys())}",
-            f"{'-'*80}",
-        ]
-        for acc in active_accounts:
-            perf = acc.risk_manager.get_module_performance_summary()
-            lines.append(
-                f" 📌 {acc.name} ({acc.account_id.upper()} - {acc.mode}):\n"
-                f"    - Equity: ${acc.equity:.2f} | Balance: ${acc.balance:.2f} | Free Margin: ${acc.free_margin:.2f}\n"
-                f"    - Daily Realized P&L: ${perf['total_day_pnl']:+.2f} (Scalp: ${perf['scalp_pnl']:+.2f} [{perf['scalp_wins']}W/{perf['scalp_trades']-perf['scalp_wins']}L], Musumali: ${perf['musumali_pnl']:+.2f} [{perf['musumali_wins']}W/{perf['musumali_trades']-perf['musumali_wins']}L])\n"
-                f"    - Daily State: {acc.trading_state} | Drawdown: -{acc.daily_drawdown_pct:.1f}%\n"
-            )
-        if self.copy_engine:
-            cp = self.copy_engine.get_status()
-            lines.append(
-                f" 🔁 Copy Engine (C -> D): Enabled={cp['enabled']} | Paused={cp['is_paused']} | Active Copied={cp['active_copied_count']}"
-            )
-        lines.append("=" * 80)
-        report = "\n".join(lines)
-        self.logger.info(report)
-        self.notifier.notify_heartbeat(report)
+        try:
+            now_utc = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            lines = [
+                f"\n{'='*80}",
+                f" [COMPREHENSIVE MULTI-ACCOUNT BOT HEARTBEAT] {now_utc}",
+                f" Active Session: {session_name} | Symbols: {list(self.active_broker_symbols.keys())}",
+                f"{'-'*80}",
+            ]
+            for acc in active_accounts:
+                perf = acc.risk_manager.get_module_performance_summary()
+                lines.append(
+                    f" 📌 {acc.name} ({acc.account_id.upper()} - {acc.mode}):\n"
+                    f"    - Equity: ${acc.equity:.2f} | Balance: ${acc.balance:.2f} | Free Margin: ${acc.free_margin:.2f}\n"
+                    f"    - Daily Realized P&L: ${perf['total_day_pnl']:+.2f} (Scalp: ${perf['scalp_pnl']:+.2f} [{perf['scalp_wins']}W/{perf['scalp_trades']-perf['scalp_wins']}L], Musumali: ${perf['musumali_pnl']:+.2f} [{perf['musumali_wins']}W/{perf['musumali_trades']-perf['musumali_wins']}L])\n"
+                    f"    - Daily State: {acc.trading_state} | Drawdown: -{acc.daily_drawdown_pct:.1f}%\n"
+                )
+            if self.copy_engine:
+                cp = self.copy_engine.get_status()
+                lines.append(
+                    f" 🔁 Copy Engine (C -> D): Enabled={cp['enabled']} | Paused={cp['is_paused']} | Active Copied={cp['active_copied_count']}"
+                )
+            lines.append("=" * 80)
+            report = "\n".join(lines)
+            self.logger.info(report)
+            self.notifier.notify_heartbeat(report)
+        except Exception as e:
+            self.logger.warning(f"Error in comprehensive heartbeat: {e}")
 
     def stop(self):
         """Safely shuts down bot and all account connections."""
         self.is_running = False
-        self.notifier.stop_command_poller()
+        try:
+            self.notifier.stop_command_poller()
+        except Exception:
+            pass
         for acc in self.account_manager.accounts.values():
-            acc.connector.shutdown()
+            try:
+                acc.connector.shutdown()
+            except Exception:
+                pass
         self.logger.info("Trading Bot terminated cleanly.")

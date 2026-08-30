@@ -383,7 +383,8 @@ dashboard:
 # 15. SYSTEM WATCHDOG & LOGGING
 # ==============================================================================
 system:
-  poll_interval_seconds: 1
+  poll_interval_seconds: 2.0
   heartbeat_interval_seconds: 900     # Comprehensive self-reporting heartbeat every 15 mins
   quick_heartbeat_interval_seconds: 60# Quick 1-minute pulse
   log_level: "INFO"
+
