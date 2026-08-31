@@ -188,13 +188,14 @@ class GoldTradingBot:
 
             # Resolve symbols on broker
             resolved = acc.connector.resolve_all_symbols(self.config.get("symbols", {}))
+            acc.active_broker_symbols = resolved
             self.active_broker_symbols.update(resolved)
 
             # Initial state transition based on MT5 native Algo Trading switch
             acc.update_connection_state()
 
             # Initial Position Reconciliation
-            acc.reconcile_account_state(self.active_broker_symbols)
+            acc.reconcile_account_state(resolved)
 
         if successful_connections == 0:
             self.logger.error("Zero accounts could connect to MT5. Please check MT5 terminals and credentials.")
@@ -335,9 +336,11 @@ class GoldTradingBot:
             if not acc.has_credentials:
                 continue
             try:
-                acc.connector.ensure_terminal_context()
-                prev_state = acc.state_machine.current_state
-                cur_state = acc.update_connection_state()
+                # If account is disconnected, do not disrupt MT5 API context unless reconnecting
+                cur_state = acc.state_machine.current_state
+                if cur_state not in (ConnectionState.CONNECTION_LOST, ConnectionState.RECONNECTING):
+                    acc.connector.ensure_terminal_context()
+                    cur_state = acc.update_connection_state()
 
                 # Handle Reconnection / Recovery if disconnected
                 if cur_state in (ConnectionState.CONNECTION_LOST, ConnectionState.RECONNECTING):
@@ -354,9 +357,15 @@ class GoldTradingBot:
                     )
                     reconnected = acc.connector.reconnect(self.config.get("symbols", {}))
                     if reconnected:
-                        self.logger.info(f"[{acc.account_id.upper()}] [CONNECTION RESTORED] Restoring state...")
+                        self.logger.info(f"[{acc.account_id.upper()}] MT5 reconnected successfully.")
+                        acc.state_machine.transition_to(
+                            ConnectionState.SYNCHRONIZING,
+                            reason="Starting position & state reconciliation post-recovery"
+                        )
+                        # Reconcile local state with MT5
                         acc.reconcile_account_state(self.active_broker_symbols)
                     else:
+                        self.logger.warning(f"[{acc.account_id.upper()}] [AUTO-RECONNECT] MT5 initialization failed. Will retry shortly...")
                         continue
 
                 # Synchronize balance, equity, margin
@@ -381,6 +390,13 @@ class GoldTradingBot:
         # Signals are strictly derived from CURRENT live market data.
         # Missed signals from offline intervals are NEVER executed.
         trade_candidates: List[TradeCandidate] = []
+
+        # Bind MT5 context to the primary active connected account for market scanning
+        scanner_acc = next((a for a in active_accounts if a.is_trading_permitted and a.connector.is_connected()), None)
+        if not scanner_acc:
+            scanner_acc = next((a for a in active_accounts if a.has_credentials and a.connector.is_connected()), None)
+        if scanner_acc:
+            scanner_acc.connector.ensure_terminal_context()
 
         for canonical, broker_sym in self.active_broker_symbols.items():
             try:
@@ -462,6 +478,9 @@ class GoldTradingBot:
                     if not acc.executor or not acc.risk_manager:
                         continue
 
+                    # Ensure terminal context is explicitly bound to this account before execution
+                    acc.connector.ensure_terminal_context()
+
                     # PRIMARY MASTER SWITCH: MT5 Algo Trading must be ALLOWED
                     if not acc.is_trading_permitted or self.is_manually_paused:
                         # Skip new trade execution if Algo Trading is OFF or account is paused
@@ -469,9 +488,17 @@ class GoldTradingBot:
 
                     all_open = acc.executor.get_open_positions()
 
+                    # Resolve symbol for this specific account
+                    target_symbol = cand.symbol
+                    if hasattr(acc, "active_broker_symbols") and acc.active_broker_symbols:
+                        for canon, sym in self.active_broker_symbols.items():
+                            if sym == cand.symbol and canon in acc.active_broker_symbols:
+                                target_symbol = acc.active_broker_symbols[canon]
+                                break
+
                     # Dynamic Sizing bounded by this account's profile risk limits
                     lot_size = acc.risk_manager.calculate_lot_size(
-                        symbol=cand.symbol,
+                        symbol=target_symbol,
                         entry_price=cand.entry,
                         stop_loss_price=cand.sl,
                         equity=acc.equity,
@@ -484,7 +511,7 @@ class GoldTradingBot:
 
                     # Mandatory Pre-Trade Safety Check on exact calculated lot size
                     passed, failures, expected_loss = acc.risk_manager.pre_trade_risk_check(
-                        symbol=cand.symbol,
+                        symbol=target_symbol,
                         engine_magic=cand.magic,
                         order_type=cand.direction,
                         entry_price=cand.entry,
@@ -502,7 +529,7 @@ class GoldTradingBot:
 
                     if passed:
                         ticket = acc.executor.execute_market_order(
-                            symbol=cand.symbol,
+                            symbol=target_symbol,
                             order_type=cand.direction,
                             volume=lot_size,
                             sl=cand.sl,

@@ -77,9 +77,13 @@ class MT5Connector:
             acc = mt5.account_info()
             if acc is None or (self.account and acc.login != self.account):
                 if self.path and os.path.exists(self.path):
-                    mt5.initialize(path=self.path, login=self.account, password=str(self.password), server=str(self.server), timeout=5000)
+                    res = mt5.initialize(path=self.path, login=self.account, password=str(self.password), server=str(self.server), timeout=3000)
+                    if not res:
+                        return False
                 elif self.account and self.password and self.server:
-                    mt5.login(login=self.account, password=str(self.password), server=str(self.server), timeout=5000)
+                    res = mt5.login(login=self.account, password=str(self.password), server=str(self.server), timeout=3000)
+                    if not res:
+                        return False
             return True
         except Exception as e:
             logger.warning(f"[{self.account_id.upper()}] Error ensuring terminal context: {e}")
