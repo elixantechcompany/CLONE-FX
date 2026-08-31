@@ -198,7 +198,7 @@ musumali_strategy:
   
   # Higher-Timeframe Bias
   htf_timeframe: "H1"
-  require_htf_alignment: false
+  require_htf_alignment: true         # Strict HTF alignment required
   htf_fast_ema: 20
   htf_slow_ema: 50
   htf_trend_ema: 200
@@ -209,10 +209,10 @@ musumali_strategy:
 zone_management:
   zone_band_points: 2.0
   max_zone_failures: 2
-  zone_cooldown_minutes: 10
+  zone_cooldown_minutes: 15
 
 # ==============================================================================
-# 8. ENGINE 2: HIGH-CONVICTION MICRO-SCALPER (M1, M5, M15) [Magic: 1001]
+# 8. ENGINE 2: HIGH-CONVICTION SCALPER (M5, M15 Confirmation) [Magic: 1001]
 # ==============================================================================
 m1_scalper:
   enabled: true
@@ -223,8 +223,8 @@ m1_scalper:
   trend_ema_period: 20
   trend_slope_bars: 3
   magic_number: 1001                  # Unique Magic Number for M1_Scalp
-  timeframes: ["M1", "M5", "M15"]     # Active multi-timeframe micro-scalping
-  min_quality_score: 80               # Grade-A Quality Score Threshold (Strictly >= 80)
+  timeframes: ["M5", "M15"]           # Solid M5/M15 confirmed candles (filters out noisy 60s M1 chop)
+  min_quality_score: 85               # Ultra High-Conviction Quality Score Threshold (>= 85)
   max_concurrent_scalp: 1             # Max 1 active scalper position per account
   fast_ema: 7
   slow_ema: 16
