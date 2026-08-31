@@ -484,8 +484,8 @@ class RiskManager:
         challenge_pnl = current_equity - self.initial_account_size
         trailing_drawdown = self.lifetime_high_water_equity - current_equity
 
-        # 1. CHALLENGE / TARGET PASSED GOAL CHECK
-        if challenge_pnl >= self.challenge_target_profit:
+        # 1. CHALLENGE / TARGET PASSED GOAL CHECK (Prop Firm Accounts Only)
+        if self.account_type == "BRIGHTFUNDED" and challenge_pnl >= self.challenge_target_profit:
             self.circuit_tripped = True
             self.trading_state = "CHALLENGE_PASSED"
             self.trip_reason = (

@@ -444,7 +444,9 @@ class OrderExecutor:
             f"SL: {sl_rounded:.2f} | TP: {tp_rounded:.2f} | Magic: {used_magic} | Comment: {clean_comment}"
         )
 
+        t_order_sent = time.time()
         result = mt5.order_send(valid_request)
+        t_order_done = time.time()
 
         if result is None:
             err_code, err_desc = mt5.last_error()

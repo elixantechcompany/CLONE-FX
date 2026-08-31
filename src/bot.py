@@ -668,8 +668,8 @@ class GoldTradingBot:
                         self.logger.info(OrderPipelineAuditor.format_audit_log(acc.account_id, cand.candle_id, cand.engine_name, target_symbol, cand.direction, int(cand.conviction_score), stages, "ORDER_EXECUTED", f"Ticket #{ticket}"))
                         self.notifier.notify_trade_event(
                             "TRADE OPENED",
-                            f"Ticket #{ticket} | {cand.symbol} {cand.direction} {lot_size} lots @ {cand.entry:.2f}\n"
-                            f"SL: {cand.sl:.2f} | TP: {cand.tp:.2f} | Risk: ${expected_loss:.2f} | Conviction: {cand.conviction_score}/100\n"
+                            f"Ticket #{ticket} | {target_symbol} {cand.direction} {lot_size} lots @ {live_entry:.2f}\n"
+                            f"SL: {acc_sl:.2f} | TP: {acc_tp:.2f} | Risk: ${expected_loss:.2f} | Conviction: {cand.conviction_score}/100\n"
                             f"Reason: {cand.setup_reason}",
                             account_id=acc.account_id,
                         )
