@@ -284,7 +284,7 @@ harmony_rules:
 risk_management:
   lot_mode: "dynamic_risk"            # STRICTLY DYNAMIC: Never fixed lots
   risk_per_trade_percent: 0.25        # Base 0.25% ($2.50 per trade on $1,000)
-  max_daily_trades: 16                # Max 16 trades per day across account
+  max_daily_trades: 35                # Active daily trade cap allowing multiple sessions
   max_consecutive_losses: 3           # Max 3 consecutive losses before cooldown
   loss_cooldown_minutes: 15           # 15-minute cooldown on 3 losses
   
