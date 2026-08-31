@@ -5,6 +5,9 @@ Enforces strict multi-account isolation across 4 distinct accounts:
   - ACCOUNT B: $1,000 BrightFunded (Independent, Zero Copy)
   - ACCOUNT C: $20 Personal Account (Copy Master)
   - ACCOUNT D: $20 Personal Account (Copy Follower, C -> D Only)
+
+Integrates per-account Connection State Machine, MT5 Algo Trading detection,
+and 10-Step Automatic State & Position Reconciliation.
 """
 
 import logging
@@ -12,14 +15,16 @@ import os
 import time
 import datetime
 from typing import Dict, List, Optional, Tuple, Any
+import MetaTrader5 as mt5
 
 from src.connection import MT5Connector
+from src.connection_state import AccountConnectionStateMachine, ConnectionState
 
 logger = logging.getLogger("GoldBot.AccountManager")
 
 
 class AccountContext:
-    """Holds fully isolated trading state, connectors, and risk managers for a single account."""
+    """Holds fully isolated trading state, connectors, state machine, and risk managers for a single account."""
     def __init__(
         self,
         account_id: str,
@@ -61,6 +66,9 @@ class AccountContext:
             account_id=self.account_id,
         )
 
+        # Connection State Machine
+        self.state_machine = AccountConnectionStateMachine(account_id=self.account_id)
+
         # Lazy-bound submodules
         self.risk_manager = None
         self.executor = None
@@ -80,6 +88,13 @@ class AccountContext:
         self.pause_reason: str = ""
         self.last_sync_time: float = 0.0
 
+        # Algo Trading Status Cache
+        self.is_algo_trading_allowed: bool = False
+
+    @property
+    def has_credentials(self) -> bool:
+        return bool(self.login and str(self.login).strip() and str(self.login).isdigit())
+
     @property
     def is_independent(self) -> bool:
         return self.mode == "INDEPENDENT"
@@ -95,6 +110,66 @@ class AccountContext:
     @property
     def runs_shared_strategy(self) -> bool:
         return self.mode in ("INDEPENDENT", "COPY_MASTER")
+
+    @property
+    def is_trading_permitted(self) -> bool:
+        """Returns True only when state machine allows trading and account is not paused."""
+        return (
+            self.state_machine.is_trading_permitted
+            and not self.is_manually_paused
+            and self.is_active
+        )
+
+    def update_connection_state(self) -> ConnectionState:
+        """
+        Polls MT5 connection and native Algo Trading switch status.
+        Transitions state machine appropriately without requiring manual user commands.
+        """
+        if not self.connector.is_connected():
+            if not self.connector.check_internet():
+                if self.state_machine.current_state not in (ConnectionState.CONNECTION_LOST, ConnectionState.RECONNECTING):
+                    self.state_machine.transition_to(
+                        ConnectionState.CONNECTION_LOST,
+                        reason="Internet connection lost"
+                    )
+            else:
+                if self.state_machine.current_state not in (ConnectionState.CONNECTION_LOST, ConnectionState.RECONNECTING):
+                    self.state_machine.transition_to(
+                        ConnectionState.CONNECTION_LOST,
+                        reason="MT5 terminal or trade server disconnected"
+                    )
+            return self.state_machine.current_state
+
+        # Terminal is connected -> check Account Identity & Server Verification
+        valid, msg = self.connector.verify_pre_trade_identity(require_algo_on=False)
+        if not valid:
+            if self.state_machine.current_state != ConnectionState.ERROR_REQUIRES_ATTENTION:
+                self.state_machine.transition_to(
+                    ConnectionState.ERROR_REQUIRES_ATTENTION,
+                    reason=msg
+                )
+            self.is_algo_trading_allowed = False
+            return self.state_machine.current_state
+
+        # Check Algo Trading master permission
+        algo_status = self.connector.get_algo_trading_status()
+        self.is_algo_trading_allowed = algo_status.get("is_algo_enabled", False)
+
+        if self.is_algo_trading_allowed:
+            if self.state_machine.current_state != ConnectionState.CONNECTED_TRADING_ALLOWED:
+                self.state_machine.transition_to(
+                    ConnectionState.CONNECTED_TRADING_ALLOWED,
+                    reason="MT5 Algo Trading is ENABLED"
+                )
+        else:
+            if self.state_machine.current_state != ConnectionState.CONNECTED_TRADING_DISABLED:
+                self.state_machine.transition_to(
+                    ConnectionState.CONNECTED_TRADING_DISABLED,
+                    reason="MT5 Algo Trading is DISABLED in terminal settings (New trades blocked, positions managed)"
+                )
+
+        self.state_machine.record_tick()
+        return self.state_machine.current_state
 
     def sync_account_metrics(self) -> dict:
         """Pulls fresh balance, equity, and margin for this specific account from MT5."""
@@ -117,7 +192,153 @@ class AccountContext:
                 self.daily_drawdown_pct = 0.0
 
             self.last_sync_time = time.time()
+            self.state_machine.record_sync()
         return acc_info
+
+    def reconcile_account_state(self, active_broker_symbols: Dict[str, str]) -> bool:
+        """
+        10-STEP RECONCILIATION & RECOVERY SEQUENCE:
+          1. Verify MT5 connection.
+          2. Verify account identity.
+          3. Verify trading permissions (MT5 Algo Trading status).
+          4. Synchronize account balance/equity/margin.
+          5. Retrieve currently open positions.
+          6. Retrieve recent orders/deals from MT5 history.
+          7. Reconcile local state with MT5.
+          8. Detect any trades that occurred or closed while disconnected.
+          9. Reconstruct position-management state (entry, SL, TP, volume, direction, peak profit, R-multiple, breakeven, trailing, giveback).
+          10. Transition to RECOVERED and resume normal market analysis.
+        """
+        self.state_machine.transition_to(
+            ConnectionState.SYNCHRONIZING,
+            reason="Starting 10-Step State & Position Reconciliation"
+        )
+        logger.info(f"[{self.account_id.upper()}] [RECONCILIATION] Running 10-Step State & Position Reconciliation...")
+
+        try:
+            # Step 1: Verify MT5 connection
+            if not self.connector.is_connected():
+                logger.warning(f"[{self.account_id.upper()}] Step 1 Fail: MT5 not connected.")
+                self.state_machine.transition_to(ConnectionState.CONNECTION_LOST, reason="Step 1 MT5 check failed")
+                return False
+
+            # Step 2: Verify account identity
+            if not self.connector.verify_account_identity():
+                logger.warning(f"[{self.account_id.upper()}] Step 2 Fail: Account identity mismatch.")
+                self.state_machine.transition_to(ConnectionState.ERROR_REQUIRES_ATTENTION, reason="Step 2 identity mismatch")
+                return False
+
+            # Step 3: Verify trading permissions
+            algo_status = self.connector.get_algo_trading_status()
+            self.is_algo_trading_allowed = algo_status.get("is_algo_enabled", False)
+
+            # Step 4: Synchronize account metrics
+            self.sync_account_metrics()
+            if self.risk_manager:
+                self.risk_manager.reset_daily_metrics_if_needed(self.equity)
+
+            # Step 5: Retrieve currently open positions from MT5
+            open_positions_by_symbol = {}
+            all_live_positions = []
+            for canonical, broker_sym in active_broker_symbols.items():
+                positions = self.executor.get_open_positions(broker_sym) if self.executor else []
+                open_positions_by_symbol[broker_sym] = positions
+                all_live_positions.extend(positions)
+
+            live_tickets = {p["ticket"] for p in all_live_positions}
+
+            # Step 6 & 7: Reconcile local tickets with MT5 & retrieve recent deals
+            if self.executor:
+                # Detect positions closed while offline
+                for ticket in list(self.executor.known_tickets.keys()):
+                    if ticket not in live_tickets:
+                        deals = mt5.history_deals_get(position=ticket)
+                        profit = sum(d.profit for d in deals) if deals else 0.0
+                        logger.info(f"[{self.account_id.upper()}] [DISCONNECTED CLOSE DETECTED] Ticket #{ticket} closed while offline | P&L: ${profit:+.2f}")
+                        self.executor._handle_ticket_closed(ticket, profit, reason="Closed_While_Disconnected")
+
+                # Step 8 & 9: Reconstruct position management state for all open positions
+                for pos in all_live_positions:
+                    ticket = pos["ticket"]
+                    sym = pos["symbol"]
+                    pos_type = pos["type"]
+                    vol = pos["volume"]
+                    entry = pos["price_open"]
+                    sl = pos["sl"]
+                    tp = pos["tp"]
+                    magic = pos["magic"]
+                    current_profit = pos["profit"]
+
+                    # Register with Intelligent Exit Engine
+                    rec = self.executor.exit_engine.register_position(
+                        ticket=ticket,
+                        symbol=sym,
+                        pos_type=pos_type,
+                        volume=vol,
+                        open_price=entry,
+                        sl=sl,
+                        tp=tp,
+                        magic=magic,
+                        account_id=self.account_id,
+                    )
+
+                    # Update peak profit & R multiple
+                    if rec:
+                        price_gain = (pos["price_current"] - entry) if pos_type == "BUY" else (entry - pos["price_current"])
+                        current_r = price_gain / rec.initial_risk_dist if rec.initial_risk_dist > 0 else 0.0
+                        rec.current_r = current_r
+                        rec.peak_r = max(rec.peak_r, current_r)
+                        rec.peak_profit_dollars = max(rec.peak_profit_dollars, current_profit)
+                        if sl != 0 and abs(sl - entry) < (rec.initial_risk_dist * 0.5):
+                            rec.be_applied = True
+
+                    # Update executor known ticket state
+                    self.executor.known_tickets[ticket] = {
+                        "account_id": self.account_id,
+                        "symbol": sym,
+                        "type": pos_type,
+                        "volume": vol,
+                        "entry_price": entry,
+                        "initial_sl": sl,
+                        "initial_tp": tp,
+                        "risk_distance": rec.initial_risk_dist if rec else 2.0,
+                        "be_applied": rec.be_applied if rec else False,
+                        "magic": magic,
+                    }
+                    self.executor.peak_profit[ticket] = max(self.executor.peak_profit.get(ticket, 0.0), current_profit)
+
+                    logger.info(
+                        f"[{self.account_id.upper()}] [POSITION RECONSTRUCTED] Ticket #{ticket} ({sym} {pos_type} {vol} lots @ {entry:.2f}, "
+                        f"SL: {sl:.2f}, TP: {tp:.2f}, P&L: ${current_profit:+.2f}, Peak R: {rec.peak_r if rec else 0.0:+.2f}R)"
+                    )
+
+            # Step 10: Transition to RECOVERED and set operational state
+            self.state_machine.transition_to(
+                ConnectionState.RECOVERED,
+                reason="10-Step Reconciliation completed successfully"
+            )
+
+            if self.is_algo_trading_allowed:
+                self.state_machine.transition_to(
+                    ConnectionState.CONNECTED_TRADING_ALLOWED,
+                    reason="Reconciliation completed; MT5 Algo Trading is ON"
+                )
+            else:
+                self.state_machine.transition_to(
+                    ConnectionState.CONNECTED_TRADING_DISABLED,
+                    reason="Reconciliation completed; MT5 Algo Trading is OFF"
+                )
+
+            logger.info(f"[{self.account_id.upper()}] [RECONCILIATION SUCCESS] All positions reconciled and management active.")
+            return True
+
+        except Exception as e:
+            logger.exception(f"[{self.account_id.upper()}] Error during reconciliation: {e}")
+            self.state_machine.transition_to(
+                ConnectionState.ERROR_REQUIRES_ATTENTION,
+                reason=f"Reconciliation error: {e}"
+            )
+            return False
 
     def get_summary(self) -> dict:
         """Returns snapshot of this account's independent status."""
@@ -127,6 +348,8 @@ class AccountContext:
         trailing_dd = max(0.0, hwm - self.equity)
         rem_daily_buf = max(0.0, (self.risk_manager.daily_hard_stop_loss if self.risk_manager else 25.0) - daily_loss)
         rem_trailing_buf = max(0.0, (self.risk_manager.trailing_hard_stop_drawdown if self.risk_manager else 50.0) - trailing_dd)
+
+        sm_summary = self.state_machine.get_summary()
 
         return {
             "account_id": self.account_id,
@@ -150,9 +373,12 @@ class AccountContext:
             "remaining_daily_buffer": round(rem_daily_buf, 2),
             "remaining_trailing_buffer": round(rem_trailing_buf, 2),
             "trading_state": self.risk_manager.trading_state if self.risk_manager else self.trading_state,
+            "connection_state": sm_summary["current_state"],
+            "algo_trading_allowed": self.is_algo_trading_allowed,
             "is_active": self.is_active,
             "is_paused": self.is_manually_paused,
             "pause_reason": self.pause_reason,
+            "last_sync_age_seconds": sm_summary.get("last_sync_age_seconds"),
         }
 
 

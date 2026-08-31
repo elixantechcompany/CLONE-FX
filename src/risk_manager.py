@@ -141,11 +141,11 @@ class RiskManager:
 
         # Consecutive loss rules
         cl_cfg = self.risk_config.get("consecutive_losses", {})
-        self.cl_caution_threshold = cl_cfg.get("caution_threshold", 2)
-        self.cl_reduce_risk_threshold = cl_cfg.get("reduce_risk_threshold", 3)
-        self.cl_restrict_threshold = cl_cfg.get("restrict_trading_threshold", 4)
-        self.cl_pause_threshold = cl_cfg.get("pause_module_threshold", 5)
-        self.cl_cooldown_seconds = cl_cfg.get("module_cooldown_minutes", 30) * 60.0
+        self.cl_caution_threshold = int(cl_cfg.get("caution_threshold", 2))
+        self.cl_reduce_risk_threshold = int(cl_cfg.get("reduce_risk_threshold", 2))
+        self.cl_restrict_threshold = int(cl_cfg.get("restrict_trading_threshold", 3))
+        self.cl_pause_threshold = int(cl_cfg.get("pause_module_threshold", 3))
+        self.cl_cooldown_seconds = float(cl_cfg.get("module_cooldown_minutes", 30)) * 60.0
 
         # Liquidity Zone Failure Memory
         self.zone_failures: Dict[float, int] = {}
@@ -153,10 +153,17 @@ class RiskManager:
         self.max_zone_failures = self.zone_config.get("max_zone_failures", 2)
         self.zone_cooldown_minutes = self.zone_config.get("zone_cooldown_minutes", 10)
 
-        # Profit Analytics
+        # Profit & Session Expectancy Analytics
         self.total_peak_r: float = 0.0
         self.total_captured_r: float = 0.0
         self.exit_reason_stats: Dict[str, dict] = {}
+        self.session_performance: Dict[str, dict] = {
+            "Asian": {"wins": 0, "losses": 0, "win_pnl": 0.0, "loss_pnl": 0.0},
+            "London": {"wins": 0, "losses": 0, "win_pnl": 0.0, "loss_pnl": 0.0},
+            "London/NY Overlap": {"wins": 0, "losses": 0, "win_pnl": 0.0, "loss_pnl": 0.0},
+            "New York": {"wins": 0, "losses": 0, "win_pnl": 0.0, "loss_pnl": 0.0},
+            "Late Asian/Off-Hours": {"wins": 0, "losses": 0, "win_pnl": 0.0, "loss_pnl": 0.0},
+        }
 
     @property
     def is_personal(self) -> bool:

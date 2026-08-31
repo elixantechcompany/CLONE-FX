@@ -177,15 +177,15 @@ class TestIntelligentExitEngine(unittest.TestCase):
         rec = self.engine.records[1002]
         self.assertEqual(rec.state, PositionState.STATE_2_PROFITABLE)
 
-    def test_dollar_accumulation_step_locking(self):
-        """Tests that reaching $0.50 profit immediately switches SL to lock in gain."""
+    def test_breakeven_lock_at_half_r(self):
+        """Tests that reaching +0.50R profit moves SL to breakeven + buffer."""
         self.engine.register_position(
             ticket=1008,
             symbol="XAUUSDm",
             pos_type="BUY",
             volume=0.01,
             open_price=2650.00,
-            sl=2648.00,
+            sl=2648.00, # 2.0 risk dist
             tp=2656.00,
             magic=1001,
         )
@@ -195,15 +195,15 @@ class TestIntelligentExitEngine(unittest.TestCase):
             "type": "BUY",
             "volume": 0.01,
             "price_open": 2650.00,
-            "price_current": 2650.50, # Reached +$0.50
+            "price_current": 2651.00, # Reached +1.0 price gain = +0.50R
             "sl": 2648.00,
             "tp": 2656.00,
-            "profit": 0.50,
+            "profit": 1.00,
             "magic": 1001,
         }
         df_m1 = create_dummy_df(30, 2650.0, "bullish")
         df_m5 = create_dummy_df(30, 2650.0, "bullish")
-        live_tick = MockTick(bid=2650.50, ask=2650.76)
+        live_tick = MockTick(bid=2651.00, ask=2651.26)
 
         decision, new_sl, reason = self.engine.evaluate_position_lifecycle(
             pos_dict=pos_dict,
@@ -214,13 +214,13 @@ class TestIntelligentExitEngine(unittest.TestCase):
             live_atr=2.0,
             digits=2,
         )
-        self.assertEqual(decision, ExitDecision.TIGHTEN_PROTECTION)
-        self.assertGreater(new_sl, 2650.00, "SL must switch immediately to green at $0.50 profit")
-        self.assertIn("DOLLAR_ACCUMULATION_LOCK", reason)
+        self.assertEqual(decision, ExitDecision.LOCK_BREAKEVEN)
+        self.assertGreater(new_sl, 2650.00, "SL must move to breakeven buffer at +0.50R profit")
+        self.assertIn("BREAKEVEN_LOCK", reason)
 
     def test_confirmed_reversal_exit(self):
-        """Tests that high reversal score (>=70) triggers immediate market close."""
-        self.engine.register_position(
+        """Tests that high reversal score (>=80) triggers immediate market close once matured."""
+        rec = self.engine.register_position(
             ticket=1003,
             symbol="XAUUSDm",
             pos_type="BUY",
@@ -230,6 +230,7 @@ class TestIntelligentExitEngine(unittest.TestCase):
             tp=2656.00,
             magic=1001,
         )
+        rec.bars_held = 3  # Position has matured
         pos_dict = {
             "ticket": 1003,
             "symbol": "XAUUSDm",

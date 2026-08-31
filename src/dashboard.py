@@ -1,7 +1,7 @@
 """
 Real-Time Multi-Symbol & Multi-Account Dashboard Exporter
 Exports live candle data, open positions across accounts, performance metrics,
-copy engine states, and risk ladder states to dashboard/data.json.
+copy engine states, Connection State Machine states, and MT5 Algo Trading switch status to dashboard/data.json.
 """
 
 import json
@@ -42,7 +42,7 @@ class DashboardExporter:
         daily_trend: Optional[str] = None,
         trend_reason: Optional[str] = None,
     ):
-        """Exports unified real-time dashboard data."""
+        """Exports unified real-time dashboard data with Connection State Machine and MT5 Algo Trading status."""
         if not self.enabled:
             return
 
@@ -69,6 +69,8 @@ class DashboardExporter:
                 "equity": account_summary.get("equity", 1000.0),
                 "daily_pnl": daily_perf.get("total_day_pnl", 0.0) if daily_perf else 0.0,
                 "trading_state": "NORMAL",
+                "connection_state": "CONNECTED_TRADING_ALLOWED",
+                "algo_trading_allowed": True,
                 "daily_drawdown_pct": 0.0,
             }]
         elif accounts_summary is None:
@@ -121,6 +123,10 @@ class DashboardExporter:
                 "active_symbols": active_symbols,
                 "primary_symbol": primary_sym,
                 "active_session": active_session,
+                "master_switch": {
+                    "primary_switch": "MT5_NATIVE_ALGO_TRADING",
+                    "algo_trading_active": any(a.get("algo_trading_allowed", False) for a in accounts_summary) if accounts_summary else True,
+                },
                 "account": {
                     "balance": round(float(primary_acc.get("balance", 1000.0)), 2),
                     "equity": round(float(primary_acc.get("equity", 1000.0)), 2),

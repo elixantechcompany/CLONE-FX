@@ -318,24 +318,13 @@ class TestFundedAccountUpgrade(unittest.TestCase):
     # TEST 5: Timeframe Isolation
     def test_scalper_vs_musumali_timeframe_isolation(self):
         self.exit_engine.register_position(
-            ticket=6001,
-            symbol="XAUUSDm",
-            pos_type="BUY",
-            volume=0.02,
-            open_price=2650.0,
-            sl=2648.0,
-            tp=2656.0,
-            magic=1001,
+            ticket=6001, symbol="XAUUSDm", pos_type="BUY", volume=0.02,
+            open_price=2650.0, sl=2648.0, tp=2656.0, magic=1001
         )
+        self.exit_engine.records[6001].bars_held = 3  # Mature position
         self.exit_engine.register_position(
-            ticket=6002,
-            symbol="XAUUSDm",
-            pos_type="BUY",
-            volume=0.02,
-            open_price=2650.0,
-            sl=2645.0,
-            tp=2660.0,
-            magic=2001,
+            ticket=6002, symbol="XAUUSDm", pos_type="BUY", volume=0.02,
+            open_price=2650.0, sl=2645.0, tp=2660.0, magic=2001,
             thesis_anchor=2646.0,
         )
 

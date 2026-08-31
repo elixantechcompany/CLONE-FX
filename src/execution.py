@@ -6,6 +6,8 @@ Enforces:
   3. Strict Account Tagging & Identification ([ACCOUNT_A], [ACCOUNT_B], [ACCOUNT_C], [ACCOUNT_D]).
   4. Real-Time Dynamic Trade Management & Closed Trade Feedback.
   5. Copy Engine Event Hooks (Open, SL/TP Modify, Partial Close, Full Close).
+  6. Duplicate Trade Protection against active positions and recent deal history.
+  7. Robust Handling when MT5 Algo Trading is Disabled.
 """
 
 import logging
@@ -95,11 +97,42 @@ class OrderExecutor:
         comment: str = "Musumali",
         zone_id: Optional[float] = None,
         candle_id: str = "",
+        quality_score: int = 85,
     ) -> Optional[int]:
         """
         Executes a market order on MT5 with guaranteed SL and TP.
-        Includes Mandatory Post-Execution Verification and Emergency Close if SL is missing.
+        Includes Mandatory Post-Execution Verification, Duplicate Trade Protection,
+        and Emergency Close if SL is missing.
         """
+        used_magic = magic or self.magic_musumali
+
+        # MANDATORY PRE-FLIGHT GATEKEEPER: Strict 7-Point Identity & Terminal Verification
+        if self.connector:
+            valid, msg = self.connector.verify_pre_trade_identity(symbol=symbol, require_algo_on=True)
+            if not valid:
+                logger.error(f"[{self.account_id.upper()}] [ORDER BLOCKED] {msg}")
+                return None
+
+        # DUPLICATE TRADE PROTECTION CHECK 1: Local Known Tickets & Active MT5 Positions
+        open_pos = self.get_open_positions(symbol)
+        for p in open_pos:
+            if p.get("magic") == used_magic:
+                logger.warning(
+                    f"[{self.account_id.upper()}] [DUPLICATE TRADE BLOCKED] Position #{p['ticket']} on {symbol} "
+                    f"with Magic #{used_magic} is already active."
+                )
+                return None
+
+        # DUPLICATE TRADE PROTECTION CHECK 2: Recent Deals / History Check for duplicate setup
+        if candle_id:
+            for t_data in self.known_tickets.values():
+                if t_data.get("candle_id") == candle_id and t_data.get("symbol") == symbol:
+                    logger.warning(
+                        f"[{self.account_id.upper()}] [DUPLICATE TRADE BLOCKED] Setup with Candle ID '{candle_id}' "
+                        f"already executed previously on {symbol}."
+                    )
+                    return None
+
         info = mt5.symbol_info(symbol)
         if info is None:
             logger.error(f"[{self.account_id.upper()}] Cannot execute order: Symbol {symbol} info not available.")
@@ -112,7 +145,6 @@ class OrderExecutor:
             return None
 
         price = tick.ask if order_type.upper() == "BUY" else tick.bid
-        used_magic = magic or self.magic_musumali
         sl_rounded = round(sl, digits)
         tp_rounded = round(tp, digits)
         mt5_order_type = mt5.ORDER_TYPE_BUY if order_type.upper() == "BUY" else mt5.ORDER_TYPE_SELL
@@ -155,8 +187,15 @@ class OrderExecutor:
         t_order_done = time.time()
 
         if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+            retcode = result.retcode if result else None
             err = result.comment if result else str(mt5.last_error())
-            logger.error(f"[{self.account_id.upper()}] Order execution failed with retcode [{result.retcode if result else 'None'}]: {err}")
+            if retcode in (10026, 10027):
+                logger.warning(
+                    f"[{self.account_id.upper()}] Order rejected by MT5 (Retcode {retcode}: AutoTrading/Trading disabled). "
+                    f"Please verify MT5 Algo Trading setting."
+                )
+            else:
+                logger.error(f"[{self.account_id.upper()}] Order execution failed with retcode [{retcode}]: {err}")
             return None
 
         ticket = result.order
@@ -189,6 +228,8 @@ class OrderExecutor:
             "magic": used_magic,
             "candle_id": candle_id,
             "comment": comment,
+            "quality_score": quality_score,
+            "open_time": time.time(),
         }
 
         self.exit_engine.register_position(
@@ -264,6 +305,12 @@ class OrderExecutor:
 
     def update_sl_tp(self, ticket: int, symbol: str, new_sl: float, new_tp: float) -> bool:
         """Modifies Stop Loss and Take Profit for active position."""
+        if self.connector:
+            valid, msg = self.connector.verify_pre_trade_identity(symbol=symbol, require_algo_on=False)
+            if not valid:
+                logger.error(f"[{self.account_id.upper()}] [SL/TP MODIFICATION BLOCKED] {msg}")
+                return False
+
         info = mt5.symbol_info(symbol)
         digits = info.digits if info else 2
 
@@ -280,6 +327,12 @@ class OrderExecutor:
 
         result = mt5.order_send(request)
         if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+            retcode = result.retcode if result else None
+            err = result.comment if result else str(mt5.last_error())
+            if retcode in (10026, 10027):
+                logger.warning(f"[{self.account_id.upper()}] SL/TP update on #{ticket} rejected by MT5 (Retcode {retcode}: AutoTrading/Trading disabled).")
+            else:
+                logger.warning(f"[{self.account_id.upper()}] Failed to update SL/TP on #{ticket} [{retcode}]: {err}")
             return False
 
         logger.info(f"[{self.account_id.upper()}] Updated Ticket #{ticket} ({symbol}) -> New SL: {sl_val:.2f}, New TP: {tp_val:.2f}")
@@ -295,6 +348,12 @@ class OrderExecutor:
 
     def partial_close_position(self, ticket: int, symbol: str, close_volume: float, reason: str = "Partial Exit") -> bool:
         """Closes a portion of an open position."""
+        if self.connector:
+            valid, msg = self.connector.verify_pre_trade_identity(symbol=symbol, require_algo_on=False)
+            if not valid:
+                logger.error(f"[{self.account_id.upper()}] [PARTIAL CLOSE BLOCKED] {msg}")
+                return False
+
         positions = mt5.positions_get(ticket=ticket)
         if not positions or len(positions) == 0:
             return False
@@ -310,27 +369,40 @@ class OrderExecutor:
         close_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
         tick = mt5.symbol_info_tick(symbol)
         price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
-        filling_mode = self._get_supported_filling_mode(info)
         clean_comment = re.sub(r'[^a-zA-Z0-9_]', '', str(reason))[:20] or "part_close"
+        filling_candidates = [self._get_supported_filling_mode(info), mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_RETURN, mt5.ORDER_FILLING_FOK]
+        result = None
 
-        request = {
-            "action": mt5.TRADE_ACTION_DEAL,
-            "position": ticket,
-            "symbol": symbol,
-            "volume": float(close_volume),
-            "type": close_type,
-            "price": price,
-            "deviation": int(self.slippage),
-            "magic": int(pos.magic),
-            "comment": clean_comment,
-            "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": filling_mode,
-        }
+        for f_mode in filling_candidates:
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "position": ticket,
+                "symbol": symbol,
+                "volume": float(close_volume),
+                "type": close_type,
+                "price": price,
+                "deviation": int(self.slippage),
+                "magic": int(pos.magic),
+                "comment": clean_comment,
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": f_mode,
+            }
 
-        result = mt5.order_send(request)
+            result = mt5.order_send(request)
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                break
+            elif result and result.retcode in (10030, 10019, 10006):
+                continue
+            else:
+                break
+
         if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+            retcode = result.retcode if result else None
             err = result.comment if result else str(mt5.last_error())
-            logger.error(f"[{self.account_id.upper()}] Failed partial close on #{ticket}: {err}")
+            if retcode in (10026, 10027):
+                logger.warning(f"[{self.account_id.upper()}] Partial close on #{ticket} rejected by MT5 (Retcode {retcode}: AutoTrading/Trading disabled).")
+            else:
+                logger.error(f"[{self.account_id.upper()}] Failed partial close on #{ticket} [{retcode}]: {err}")
             return False
 
         logger.info(f"[{self.account_id.upper()}] PARTIAL CLOSE Ticket #{ticket} ({symbol} {close_volume} lots) | Reason: {reason}")
@@ -345,6 +417,12 @@ class OrderExecutor:
 
     def close_position(self, ticket: int, symbol: str, reason: str = "Target Hit") -> bool:
         """Closes an open position at the current market price immediately."""
+        if self.connector:
+            valid, msg = self.connector.verify_pre_trade_identity(symbol=symbol, require_algo_on=False)
+            if not valid:
+                logger.error(f"[{self.account_id.upper()}] [CLOSE POSITION BLOCKED] {msg}")
+                return False
+
         positions = mt5.positions_get(ticket=ticket)
         if not positions or len(positions) == 0:
             self._handle_ticket_closed(ticket, 0.0, reason, symbol=symbol)
@@ -358,27 +436,40 @@ class OrderExecutor:
         close_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
         tick = mt5.symbol_info_tick(symbol)
         price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
-        filling_mode = self._get_supported_filling_mode(info)
         clean_comment = re.sub(r'[^a-zA-Z0-9_]', '', str(reason))[:20] or "close"
+        filling_candidates = [self._get_supported_filling_mode(info), mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_RETURN, mt5.ORDER_FILLING_FOK]
+        result = None
 
-        request = {
-            "action": mt5.TRADE_ACTION_DEAL,
-            "position": ticket,
-            "symbol": symbol,
-            "volume": pos.volume,
-            "type": close_type,
-            "price": price,
-            "deviation": int(self.slippage),
-            "magic": int(pos.magic),
-            "comment": clean_comment,
-            "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": filling_mode,
-        }
+        for f_mode in filling_candidates:
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "position": ticket,
+                "symbol": symbol,
+                "volume": pos.volume,
+                "type": close_type,
+                "price": price,
+                "deviation": int(self.slippage),
+                "magic": int(pos.magic),
+                "comment": clean_comment,
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": f_mode,
+            }
 
-        result = mt5.order_send(request)
+            result = mt5.order_send(request)
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                break
+            elif result and result.retcode in (10030, 10019, 10006):
+                continue
+            else:
+                break
+
         if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+            retcode = result.retcode if result else None
             err = result.comment if result else str(mt5.last_error())
-            logger.error(f"[{self.account_id.upper()}] Failed to close position #{ticket}: {err}")
+            if retcode in (10026, 10027):
+                logger.warning(f"[{self.account_id.upper()}] Close order on #{ticket} rejected by MT5 (Retcode {retcode}: AutoTrading/Trading disabled).")
+            else:
+                logger.error(f"[{self.account_id.upper()}] Failed to close position #{ticket} [{retcode}]: {err}")
             return False
 
         profit = pos.profit
@@ -394,7 +485,7 @@ class OrderExecutor:
         return True
 
     def _handle_ticket_closed(self, ticket: int, profit: float, reason: str, magic: Optional[int] = None, symbol: Optional[str] = None):
-        """Cleans up internal tracking and feeds outcome and profit capture analytics to RiskManager."""
+        """Cleans up internal tracking, formats the 19-field forensic trade report, and updates RiskManager."""
         self.peak_profit.pop(ticket, None)
         zone_id = self.ticket_zones.pop(ticket, None)
         t_data = self.known_tickets.pop(ticket, None)
@@ -404,7 +495,30 @@ class OrderExecutor:
         rec = self.exit_engine.records.get(ticket)
         peak_r = rec.peak_r if rec else 0.0
         risk_dollars = rec.initial_risk_dollars if (rec and rec.initial_risk_dollars > 0) else 1.0
-        captured_r = profit / risk_dollars
+        realized_r = profit / risk_dollars
+        mae = rec.max_adverse_excursion_dollars if rec else 0.0
+        mfe = rec.max_favorable_excursion_dollars if rec else 0.0
+        duration_s = int(time.time() - (rec.open_time if rec else t_data.get("open_time", time.time())))
+        p_type = t_data.get("type", "UNKNOWN") if t_data else "UNKNOWN"
+        entry_p = t_data.get("entry_price", 0.0) if t_data else 0.0
+        init_sl = t_data.get("initial_sl", 0.0) if t_data else 0.0
+        init_tp = t_data.get("initial_tp", 0.0) if t_data else 0.0
+        q_score = t_data.get("quality_score", 85) if t_data else 85
+        engine_name = "M1_Scalper" if used_magic == 1001 else "Musumali_Sweep"
+        session_str = self.risk_manager.get_current_trading_session() if self.risk_manager else "Session"
+
+        logger.info(
+            f"\n"
+            f"================================================================================\n"
+            f" [FORENSIC CLOSED TRADE AUDIT REPORT] [{self.account_id.upper()}]\n"
+            f"--------------------------------------------------------------------------------\n"
+            f" Ticket: #{ticket} | Engine: {engine_name} (Magic #{used_magic}) | Symbol: {used_symbol} | Direction: {p_type}\n"
+            f" Entry Price: {entry_p:.2f} | Initial SL: {init_sl:.2f} | Initial TP: {init_tp:.2f}\n"
+            f" Initial Risk: ${risk_dollars:.2f} (1.00R) | Realized P&L: ${profit:+.2f} | Realized R: {realized_r:+.2f}R\n"
+            f" Peak Favorable (MFE): +${mfe:.2f} (+{peak_r:+.2f}R) | Max Adverse (MAE): -${mae:.2f}\n"
+            f" Exit Reason: {reason} | Duration: {duration_s}s | Session: {session_str} | Conviction: {q_score}/100\n"
+            f"================================================================================"
+        )
 
         if self.risk_manager:
             self.risk_manager.record_trade_result(
@@ -414,13 +528,13 @@ class OrderExecutor:
                 symbol=used_symbol,
                 exit_reason=reason,
                 peak_r=peak_r,
-                captured_r=captured_r,
+                captured_r=realized_r,
             )
 
         self.exit_engine.records.pop(ticket, None)
 
     def manage_active_positions(self, active_symbols: List[str]):
-        """Monitors open positions across all active symbols in real-time."""
+        """Monitors open positions across all active symbols in real-time with Independent Loss Guard."""
         for symbol in active_symbols:
             info = mt5.symbol_info(symbol)
             if info is None:
@@ -446,6 +560,17 @@ class OrderExecutor:
 
             if not positions:
                 continue
+
+            # Independent Real-Time Position Loss Guard
+            is_personal = "PERSONAL" in str(getattr(self, "account_id", "")).upper() or "20" in str(getattr(self, "account_id", ""))
+            hard_cap = 1.00 if is_personal else 5.00
+            for pos in positions:
+                if pos["profit"] <= -hard_cap:
+                    logger.critical(
+                        f"[{self.account_id.upper()}] [REAL-TIME LOSS GUARD TRIGGERED] Position #{pos['ticket']} "
+                        f"floating loss ${abs(pos['profit']):.2f} reached hard cap ${hard_cap:.2f}! Closing immediately."
+                    )
+                    self.close_position(pos["ticket"], symbol, reason=f"RealTime_Loss_Guard_Cap_${hard_cap:.2f}")
 
             rates_m1 = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M1, 0, 25)
             rates_m5 = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 25)

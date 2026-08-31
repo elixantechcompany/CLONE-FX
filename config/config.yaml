@@ -148,10 +148,10 @@ copy_engine:
 # 5. TRADING SYMBOLS CONFIGURATION (XAUUSD and BTCUSD)
 # ==============================================================================
 symbols:
-  active_symbols: ["XAUUSD", "BTCUSD"]
+  active_symbols: ["XAUUSD"]
   symbol_settings:
     XAUUSD:
-      candidates: ["XAUUSDm", "XAUUSD", "XAUUSD_i", "XAUUSDz", "GOLD"]
+      candidates: ["XAU/USD", "XAUUSDm", "XAUUSD", "XAUUSD_i", "XAUUSDz", "GOLD"]
       asset_type: "COMMODITY_GOLD"
       max_spread_points: 320
       atr_period: 14
@@ -162,7 +162,7 @@ symbols:
       scalp_min_sl_dollars: 0.40
       scalp_max_sl_dollars: 4.50
     BTCUSD:
-      candidates: ["BTCUSDm", "BTCUSD", "BTCUSD_i", "BTCUSDz", "BITCOIN", "BTC"]
+      candidates: ["BTC/USD", "BTCUSDm", "BTCUSD", "BTCUSD_i", "BTCUSDz", "BITCOIN", "BTC"]
       asset_type: "CRYPTO_BITCOIN"
       max_spread_points: 2500         # Crypto spread tolerance in points
       atr_period: 14
@@ -215,7 +215,7 @@ m1_scalper:
   trend_slope_bars: 3
   magic_number: 1001                  # Unique Magic Number for M1_Scalp
   timeframes: ["M1", "M5", "M15"]     # Active multi-timeframe micro-scalping
-  min_quality_score: 50               # Quality Score Threshold (0 - 100)
+  min_quality_score: 70               # Raised Quality Score Threshold for High Selectivity
   max_concurrent_scalp: 1             # Max 1 active scalper position per account
   fast_ema: 7
   slow_ema: 16
@@ -229,6 +229,7 @@ m1_scalper:
 # ==============================================================================
 profit_management:
   enabled: true
+  dollar_step_lock_enabled: false     # Disabled to prevent noise stopping
   
   # Agile R-Multiple Dynamic Profit-Lock Stages (1R = Initial Monetary Risk)
   breakeven_trigger_r: 0.50           # At +0.50R -> Begin protection (breakeven buffer)
@@ -242,18 +243,20 @@ profit_management:
   tier4_protect_trigger_r: 3.00       # At +3.00R+ -> Structure-based runner trailing
   tier4_protect_lock_r: 2.30
   
-  # Multi-Signal Confirmed Reversal & Continuation Thresholds (0 - 100)
-  reversal_exit_threshold: 70         # Reversal Score >= 70 -> Close position immediately
-  reversal_warning_threshold: 50      # Reversal Score 50-69 -> Tighten trailing & giveback
+  # Multi-Signal Confirmed Reversal & Maturation Thresholds
+  reversal_exit_threshold: 80         # Strict multi-signal agreement required (Score >= 80)
+  reversal_warning_threshold: 60      # Reversal Score 60-79 -> Monitor closely
+  min_bars_before_reversal: 3         # Trade must mature at least 3 bars before early reversal exit
+  min_seconds_before_reversal: 120    # Minimum 120s duration before early reversal exit
   continuation_strong_threshold: 60   # Continuation Score >= 60 -> Let runners breathe
   
-  # Dynamic Volatility-Aware Giveback & Peak R Decay (Early Profit Harvesting)
-  giveback_min_peak_r: 0.80           # Start giveback protection once trade touches +0.80R peak
-  giveback_max_r_decay: 0.35          # Bank profit if trade rolls back >0.35R from peak
+  # Dynamic Volatility-Aware Giveback & Peak R Decay (Only for Realized >= +1.0R Moves)
+  giveback_min_peak_r: 1.00           # Giveback protection activates only once trade touches >= +1.00R peak
+  giveback_max_r_decay: 0.40          # Bank profit if trade rolls back >0.40R from peak (locks >= +0.60R)
   
   # Stale Trade Failure Timeout (Bars Held without progress)
-  scalp_timeout_bars: 12              # Close stagnating M1 micro-scalps after 12 bars (12m)
-  musumali_timeout_bars: 20           # Musumali HTF timeout (20 bars)
+  scalp_timeout_bars: 15              # Close stagnating M1 micro-scalps after 15 bars
+  musumali_timeout_bars: 25           # Musumali HTF timeout (25 bars)
   
   # Dynamic Continuous Trailing Stop
   trailing_enabled: true
@@ -285,12 +288,12 @@ risk_management:
   max_daily_trades: 12                # Highly selective daily trade cap
   slippage_points: 30                 # Slippage tolerance in broker points
   
-  # Consecutive Losses Circuit Rules
+  # Adaptive Consecutive Losses Circuit Rules
   consecutive_losses:
-    caution_threshold: 2              # 2 losses: Increase caution
-    reduce_risk_threshold: 3          # 3 losses: Cut risk by 50%
-    restrict_trading_threshold: 4     # 4 losses: Severe restrictions (min quality 80)
-    pause_module_threshold: 5         # 5 losses: Pause affected module/symbol for cooldown
+    caution_threshold: 2              # 2 losses: Reduce risk by 50%, require quality score >= 80
+    reduce_risk_threshold: 2          # 2 losses: Cut sizing
+    restrict_trading_threshold: 3     # 3 losses: Pause affected module for 30 minutes
+    pause_module_threshold: 3         # 3 losses: Pause affected module/symbol for cooldown
     module_cooldown_minutes: 30       # 30-minute cooling window
 
   # High-Impact Macro News Filter
@@ -305,23 +308,23 @@ risk_management:
     enabled: true
     sessions:
       "London/NY Overlap":
-        quality_score_threshold: 50
+        quality_score_threshold: 70
         max_spread_points_xau: 320
         max_spread_points_btc: 2500
       "London":
-        quality_score_threshold: 50
+        quality_score_threshold: 70
         max_spread_points_xau: 320
         max_spread_points_btc: 2500
       "New York":
-        quality_score_threshold: 50
+        quality_score_threshold: 70
         max_spread_points_xau: 320
         max_spread_points_btc: 2500
       "Asian":
-        quality_score_threshold: 65
+        quality_score_threshold: 75
         max_spread_points_xau: 280
         max_spread_points_btc: 2200
       "Late Asian/Off-Hours":
-        quality_score_threshold: 65
+        quality_score_threshold: 75
         max_spread_points_xau: 300
         max_spread_points_btc: 2400
 
@@ -385,6 +388,6 @@ dashboard:
 system:
   poll_interval_seconds: 2.0
   heartbeat_interval_seconds: 900     # Comprehensive self-reporting heartbeat every 15 mins
-  quick_heartbeat_interval_seconds: 60# Quick 1-minute pulse
+  quick_heartbeat_interval_seconds: 60  # Quick 1-minute pulse
   log_level: "INFO"
 

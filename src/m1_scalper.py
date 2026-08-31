@@ -40,7 +40,7 @@ class M1Scalper:
         self.trend_ema_period = self.scalp_cfg.get("trend_ema_period", 20)
         self.trend_slope_bars = self.scalp_cfg.get("trend_slope_bars", 3)
         self.bidirectional = self.scalp_cfg.get("bidirectional", True)
-        self.min_quality_score = self.scalp_cfg.get("min_quality_score", 50)
+        self.min_quality_score = self.scalp_cfg.get("min_quality_score", 70)
 
         tf_list = self.scalp_cfg.get("timeframes", ["M1", "M5", "M15"])
         self.timeframes = []
@@ -242,6 +242,18 @@ class M1Scalper:
         tot_range = prev_bar["high"] - prev_bar["low"]
         if tot_range <= 0:
             return None, 0.0, 0.0, 0.0, None, 0, f"Flat bar on {tf_name}"
+
+        # Market Regime Filter: Detect extreme chop / alternating candles in last 6 bars
+        if len(df) >= 8:
+            recent_bars = df.iloc[-7:-1]
+            alternating_count = 0
+            for idx in range(len(recent_bars) - 1):
+                b1 = recent_bars.iloc[idx]
+                b2 = recent_bars.iloc[idx + 1]
+                if (b1["close"] >= b1["open"]) != (b2["close"] >= b2["open"]):
+                    alternating_count += 1
+            if alternating_count >= 4:
+                return None, 0.0, 0.0, 0.0, None, 0, f"Severe alternating chop ({alternating_count}/5)"
 
         upper_wick = prev_bar["high"] - max(prev_bar["open"], prev_bar["close"])
         lower_wick = min(prev_bar["open"], prev_bar["close"]) - prev_bar["low"]

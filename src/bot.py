@@ -6,12 +6,19 @@ Orchestrates:
      - Account B: $1,000 BrightFunded (Independent, Shared Strategy, Zero Copy)
      - Account C: $20 Personal Account (Copy Master, Shared Strategy)
      - Account D: $20 Personal Account (Copy Follower, C -> D Only)
-  2. Multi-Symbol Scanning: XAUUSD and BTCUSD.
-  3. Shared Dual Strategy Engines:
+  2. MT5 Native "Algo Trading" Primary Master Switch:
+     - Algo ON: Normal automated operations permitted.
+     - Algo OFF: Process remains running; new trades blocked; positions actively managed.
+     - Zero manual /start or /resume commands required for normal operations.
+  3. 7-Stage Connection State Machine & Auto-Recovery:
+     - Independent connection monitoring & fault isolation per account.
+     - 10-Step State & Position Reconciliation on recovery.
+     - Absolute Reconnection Rule: Zero stale/missed trade execution.
+  4. Multi-Symbol Scanning: XAUUSD and BTCUSD.
+  5. Dual Shared Strategy Engines:
      - Engine 1: Musumali Institutional Sweeps (M30, H1, H4) [Magic: 2001]
      - Engine 2: Agile Micro-Scalper (M1, M5, M15) [Magic: 1001]
-  4. Isolated Copy Trading Engine (Account C -> Account D with 8-Step Safety Checks).
-  5. Low-CPU Resource Throttling & Infinite Crash-Resilience Shield.
+  6. Isolated Copy Trading Engine (Account C -> Account D with 8-Step Safety Checks).
 """
 
 import logging
@@ -29,6 +36,7 @@ from dotenv import load_dotenv
 
 from src.account_manager import MultiAccountManager, AccountContext
 from src.connection import MT5Connector
+from src.connection_state import ConnectionState
 from src.execution import OrderExecutor
 from src.m1_scalper import M1Scalper
 from src.risk_manager import RiskManager
@@ -86,7 +94,7 @@ class GoldTradingBot:
         # Active broker symbols mapping: {"XAUUSD": "XAUUSDm", "BTCUSD": "BTCUSDm"}
         self.active_broker_symbols: Dict[str, str] = {}
 
-        # Traded candles persistence
+        # Traded candles persistence (Preserved across restarts and reconnects)
         self.traded_candles_file = "data/traded_candles.json"
         self.traded_candle_ids: Set[str] = set()
         self._load_traded_candles()
@@ -126,7 +134,7 @@ class GoldTradingBot:
             self.logger.warning(f"Could not persist traded candles: {e}")
 
     def initialize_accounts(self) -> bool:
-        """Initializes connectors, risk managers, and order executors for all active accounts with retry safety."""
+        """Initializes connectors, state machines, risk managers, and executors for all active accounts."""
         active_accounts = self.account_manager.get_active_accounts()
         if not active_accounts:
             self.logger.error("No active accounts found in configuration.")
@@ -135,6 +143,24 @@ class GoldTradingBot:
         successful_connections = 0
 
         for acc in active_accounts:
+            # Bind isolated RiskManager & OrderExecutor with account profile
+            if acc.risk_manager is None:
+                acc.risk_manager = RiskManager(
+                    self.config,
+                    acc.connector,
+                    account_id=acc.account_id,
+                    account_type=acc.account_type,
+                )
+            if acc.executor is None:
+                acc.executor = OrderExecutor(
+                    self.config,
+                    connector=acc.connector,
+                    risk_manager=acc.risk_manager,
+                    account_id=acc.account_id,
+                )
+                if acc.is_copy_master:
+                    acc.executor.add_event_callback(self._on_master_account_event)
+
             max_attempts = 3
             connected = False
             for attempt in range(1, max_attempts + 1):
@@ -147,37 +173,24 @@ class GoldTradingBot:
 
             if not connected:
                 self.logger.warning(
-                    f"[{acc.account_id.upper()}] Could not connect to MT5 terminal after {max_attempts} attempts. "
-                    f"Account marked as PAUSED. Remaining accounts will continue trading normally."
+                    f"[{acc.account_id.upper()}] Could not connect to MT5 terminal on startup. "
+                    f"Account marked in CONNECTION_LOST state. Other accounts will continue trading normally."
                 )
-                acc.is_manually_paused = True
-                acc.pause_reason = "Connection Failed on Startup"
+                acc.state_machine.transition_to(
+                    ConnectionState.CONNECTION_LOST,
+                    reason="Initial connection failed on startup"
+                )
                 continue
-
-            # Bind isolated RiskManager & OrderExecutor with account profile
-            acc.risk_manager = RiskManager(
-                self.config,
-                acc.connector,
-                account_id=acc.account_id,
-                account_type=acc.account_type,
-            )
-            acc.executor = OrderExecutor(
-                self.config,
-                connector=acc.connector,
-                risk_manager=acc.risk_manager,
-                account_id=acc.account_id,
-            )
-
-            # Hook Master trade events to Copy Engine (Only Account C)
-            if acc.is_copy_master:
-                acc.executor.add_event_callback(self._on_master_account_event)
 
             # Resolve symbols on broker
             resolved = acc.connector.resolve_all_symbols(self.config.get("symbols", {}))
             self.active_broker_symbols.update(resolved)
 
-            # Bot Restart Recovery for this account
-            self._recover_account_positions(acc)
+            # Initial state transition based on MT5 native Algo Trading switch
+            acc.update_connection_state()
+
+            # Initial Position Reconciliation
+            acc.reconcile_account_state(self.active_broker_symbols)
 
         if successful_connections == 0:
             self.logger.error("Zero accounts could connect to MT5. Please check MT5 terminals and credentials.")
@@ -258,38 +271,11 @@ class GoldTradingBot:
         except Exception as e:
             self.logger.warning(f"Error in copy event callback: {e}")
 
-    def _recover_account_positions(self, acc: AccountContext):
-        """Bot Restart Recovery: reconnects, reconstructs risk metrics & resumes active management."""
-        try:
-            self.logger.info(f"[{acc.account_id.upper()}] [RESTART RECOVERY] Checking for existing open positions...")
-            acc.sync_account_metrics()
-
-            for canonical, broker_sym in self.active_broker_symbols.items():
-                positions = acc.executor.get_open_positions(broker_sym)
-                for pos in positions:
-                    ticket = pos["ticket"]
-                    self.logger.info(
-                        f"[{acc.account_id.upper()}] [RECOVERED POSITION] Ticket #{ticket} ({broker_sym} {pos['type']} {pos['volume']} lots @ {pos['price_open']:.2f}, "
-                        f"SL: {pos['sl']:.2f}, TP: {pos['tp']:.2f}, P&L: ${pos['profit']:+.2f})"
-                    )
-                    acc.executor.exit_engine.register_position(
-                        ticket=ticket,
-                        symbol=broker_sym,
-                        pos_type=pos["type"],
-                        volume=pos["volume"],
-                        open_price=pos["price_open"],
-                        sl=pos["sl"],
-                        tp=pos["tp"],
-                        magic=pos["magic"],
-                        account_id=acc.account_id,
-                    )
-        except Exception as e:
-            self.logger.warning(f"[{acc.account_id.upper()}] Recovery warning: {e}")
-
     def start(self):
         """Starts 24/7 multi-account, multi-symbol trading bot with infinite resource-safe loop."""
         self.logger.info("=" * 80)
         self.logger.info("   STARTING MULTI-ACCOUNT PRECISION 24/7 TRADING BOT")
+        self.logger.info("   PRIMARY MASTER SWITCH: MT5 Native 'Algo Trading'")
         self.logger.info("   ACCOUNT A: $1,000 BrightFunded (Independent, Zero Copy)")
         self.logger.info("   ACCOUNT B: $1,000 BrightFunded (Independent, Zero Copy)")
         self.logger.info("   ACCOUNT C: $20 Personal Account (Copy Master)")
@@ -327,38 +313,62 @@ class GoldTradingBot:
             self.stop()
 
     def _tick_cycle(self):
-        """Unified tick execution across accounts, symbols, and strategy engines."""
+        """
+        Unified tick execution across accounts, symbols, and strategy engines.
+        Handles independent connection state machines, Algo Trading switch detection,
+        and zero-stale-trade execution.
+        """
         now = time.time()
         active_accounts = self.account_manager.get_active_accounts()
-        strategy_accounts = self.account_manager.get_strategy_accounts() # Accounts A, B, C
+        strategy_accounts = self.account_manager.get_strategy_accounts()  # Accounts A, B, C
         broker_symbols = list(self.active_broker_symbols.values())
         session_name = "Session"
 
-        # 1. Update and manage active positions for every account independently
+        # =====================================================================
+        # 1. INDEPENDENT ACCOUNT CONNECTION & POSITION MANAGEMENT
+        # =====================================================================
         for acc in active_accounts:
             try:
-                if not acc.connector.is_connected():
-                    self.logger.warning(f"[{acc.account_id.upper()}] Connection dropped! Reconnecting...")
-                    acc.connector.reconnect(self.config.get("symbols", {}))
-                    continue
+                acc.connector.ensure_terminal_context()
+                prev_state = acc.state_machine.current_state
+                cur_state = acc.update_connection_state()
 
+                # Handle Reconnection / Recovery if disconnected
+                if cur_state in (ConnectionState.CONNECTION_LOST, ConnectionState.RECONNECTING):
+                    # Attempt reconnect
+                    acc.state_machine.transition_to(
+                        ConnectionState.RECONNECTING,
+                        reason="Attempting auto-reconnection"
+                    )
+                    reconnected = acc.connector.reconnect(self.config.get("symbols", {}))
+                    if reconnected:
+                        self.logger.info(f"[{acc.account_id.upper()}] [CONNECTION RESTORED] Restoring state...")
+                        acc.reconcile_account_state(self.active_broker_symbols)
+                    else:
+                        # Continue with other accounts without blocking
+                        continue
+
+                # Synchronize balance, equity, margin
                 acc.sync_account_metrics()
-                acc.risk_manager.reset_daily_metrics_if_needed(acc.equity)
-                session_name = acc.risk_manager.get_current_trading_session()
+                if acc.risk_manager:
+                    acc.risk_manager.reset_daily_metrics_if_needed(acc.equity)
+                    session_name = acc.risk_manager.get_current_trading_session()
+                    acc.trading_state = acc.risk_manager.trading_state
 
-                # Manage active trades through Intelligent Exit Brain
-                acc.executor.manage_active_positions(broker_symbols)
+                # SEPARATION: Manage active trades through Intelligent Exit Brain
+                # (Existing positions remain actively managed even if Algo Trading is OFF)
+                if acc.executor:
+                    acc.executor.manage_active_positions(broker_symbols)
 
-                # Evaluate circuit breakers & state
-                can_trade, breaker_reason = acc.risk_manager.check_circuit_breakers(acc.equity)
-                if self.is_manually_paused or acc.is_manually_paused:
-                    can_trade = False
-                    breaker_reason = f"Manual Pause Active ({acc.pause_reason or 'Global'})"
-                acc.trading_state = acc.risk_manager.trading_state
             except Exception as e:
-                self.logger.warning(f"[{acc.account_id.upper()}] Position management cycle warning: {e}")
+                self.logger.warning(f"[{acc.account_id.upper()}] Account cycle warning: {e}")
 
-        # 2. Multi-Symbol Scanning across both engines (Shared Strategy Code)
+        # =====================================================================
+        # 2. MULTI-SYMBOL SCANNING (SHARED STRATEGY CODE - LIVE CURRENT MARKET DATA)
+        # =====================================================================
+        # ABSOLUTE RECONNECTION RULE:
+        # Signals are strictly derived from CURRENT live market data.
+        # Missed signals from offline intervals are NEVER executed.
         trade_candidates: List[TradeCandidate] = []
 
         for canonical, broker_sym in self.active_broker_symbols.items():
@@ -414,7 +424,9 @@ class GoldTradingBot:
             except Exception as e:
                 self.logger.warning(f"Market scanner cycle warning for {broker_sym}: {e}")
 
-        # 3. Portfolio Signal Conviction Ranking
+        # =====================================================================
+        # 3. PORTFOLIO SIGNAL CONVICTION RANKING
+        # =====================================================================
         ranked_candidates = []
         try:
             ranked_candidates = self.signal_ranker.rank_candidates(trade_candidates)
@@ -422,12 +434,19 @@ class GoldTradingBot:
             self.logger.warning(f"Signal ranker warning: {e}")
             ranked_candidates = trade_candidates
 
-        # 4. Candidate Execution across Strategy Accounts (A, B, C independently)
+        # =====================================================================
+        # 4. CANDIDATE EXECUTION ACROSS STRATEGY ACCOUNTS (A, B, C INDEPENDENTLY)
+        # =====================================================================
         for cand in ranked_candidates:
             candle_traded_any = False
             for acc in strategy_accounts:
                 try:
-                    if acc.is_manually_paused or self.is_manually_paused:
+                    if not acc.executor or not acc.risk_manager:
+                        continue
+
+                    # PRIMARY MASTER SWITCH: MT5 Algo Trading must be ALLOWED
+                    if not acc.is_trading_permitted or self.is_manually_paused:
+                        # Skip new trade execution if Algo Trading is OFF or account is paused
                         continue
 
                     all_open = acc.executor.get_open_positions()
@@ -480,6 +499,7 @@ class GoldTradingBot:
                             candle_traded_any = True
                             self.last_trade_execution_time = time.time()
                             acc.risk_manager.record_trade_placed(magic=cand.magic, symbol=cand.symbol)
+                            acc.state_machine.record_order_op()
                             self.notifier.notify_trade_event(
                                 "TRADE OPENED",
                                 f"Ticket #{ticket} | {cand.symbol} {cand.direction} {lot_size} lots @ {cand.entry:.2f}\n"
@@ -494,15 +514,19 @@ class GoldTradingBot:
                 self.traded_candle_ids.add(cand.candle_id)
                 self._save_traded_candles()
 
-        # 5. Heartbeat & Dashboard Export
+        # =====================================================================
+        # 5. HEARTBEAT & DASHBOARD EXPORT
+        # =====================================================================
         try:
             if (now - self.last_quick_heartbeat_time) >= self.quick_heartbeat_interval:
                 self.last_quick_heartbeat_time = now
                 for acc in active_accounts:
-                    positions = acc.executor.get_open_positions()
-                    cb_status = acc.risk_manager.get_circuit_breaker_status(acc.equity)
+                    positions = acc.executor.get_open_positions() if acc.executor else []
+                    cb_status = acc.risk_manager.get_circuit_breaker_status(acc.equity) if acc.risk_manager else ""
+                    algo_tag = "ALGO:ON" if acc.is_algo_trading_allowed else "ALGO:OFF"
                     self.logger.info(
-                        f"[{acc.account_id.upper()} Heartbeat] Equity: ${acc.equity:.2f} | Open Trades: {len(positions)}/2 | {cb_status}"
+                        f"[{acc.account_id.upper()} Heartbeat] State: {acc.state_machine.current_state.value} | {algo_tag} | "
+                        f"Equity: ${acc.equity:.2f} | Open Trades: {len(positions)}/2 | {cb_status}"
                     )
 
             if (now - self.last_comprehensive_heartbeat_time) >= self.comprehensive_heartbeat_interval:
@@ -512,10 +536,11 @@ class GoldTradingBot:
             # Export Real-Time Dashboard JSON
             all_positions_export = []
             for acc in active_accounts:
-                for p in acc.executor.get_open_positions():
-                    p_copy = dict(p)
-                    p_copy["account_id"] = acc.account_id.upper()
-                    all_positions_export.append(p_copy)
+                if acc.executor:
+                    for p in acc.executor.get_open_positions():
+                        p_copy = dict(p)
+                        p_copy["account_id"] = acc.account_id.upper()
+                        all_positions_export.append(p_copy)
 
             self.dashboard_exporter.export_data(
                 active_symbols=self.active_broker_symbols,
@@ -538,9 +563,11 @@ class GoldTradingBot:
                 f"{'-'*80}",
             ]
             for acc in active_accounts:
-                perf = acc.risk_manager.get_module_performance_summary()
+                perf = acc.risk_manager.get_module_performance_summary() if acc.risk_manager else {"total_day_pnl": 0.0, "scalp_pnl": 0.0, "scalp_wins": 0, "scalp_trades": 0, "musumali_pnl": 0.0, "musumali_wins": 0, "musumali_trades": 0}
+                sm_summary = acc.state_machine.get_summary()
                 lines.append(
-                    f" 📌 {acc.name} ({acc.account_id.upper()} - {acc.mode}):\n"
+                    f" [*] {acc.name} ({acc.account_id.upper()} - {acc.mode}):\n"
+                    f"    - Connection State: {sm_summary['current_state']} | MT5 Algo Trading: {'ENABLED' if acc.is_algo_trading_allowed else 'DISABLED'}\n"
                     f"    - Equity: ${acc.equity:.2f} | Balance: ${acc.balance:.2f} | Free Margin: ${acc.free_margin:.2f}\n"
                     f"    - Daily Realized P&L: ${perf['total_day_pnl']:+.2f} (Scalp: ${perf['scalp_pnl']:+.2f} [{perf['scalp_wins']}W/{perf['scalp_trades']-perf['scalp_wins']}L], Musumali: ${perf['musumali_pnl']:+.2f} [{perf['musumali_wins']}W/{perf['musumali_trades']-perf['musumali_wins']}L])\n"
                     f"    - Daily State: {acc.trading_state} | Drawdown: -{acc.daily_drawdown_pct:.1f}%\n"
@@ -548,7 +575,7 @@ class GoldTradingBot:
             if self.copy_engine:
                 cp = self.copy_engine.get_status()
                 lines.append(
-                    f" 🔁 Copy Engine (C -> D): Enabled={cp['enabled']} | Paused={cp['is_paused']} | Active Copied={cp['active_copied_count']}"
+                    f" [COPY] Copy Engine (C -> D): Enabled={cp['enabled']} | Paused={cp['is_paused']} | Active Copied={cp['active_copied_count']}"
                 )
             lines.append("=" * 80)
             report = "\n".join(lines)

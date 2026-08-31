@@ -3,11 +3,13 @@ Notification and Alert Dispatcher (Multi-Account & Multi-Symbol Telegram Alerts)
 Enforces:
   1. Multi-Account Capital & Performance Monitoring (Accounts A, B, C, D).
   2. Instant Alerts for: Trade Opened, Closed, SL Hit, Early Invalidation Exit,
-     Profit Target Reached, Daily Loss Warning, Circuit Trip, Missing SL Fail-Safe.
+     Profit Target Reached, Daily Loss Warning, Circuit Trip, Missing SL Fail-Safe,
+     Connection Drops, Auto-Recovery.
   3. Interactive Telegram Remote Control:
      - /status, /pnl, /closeall
-     - Granular Kill Switches: /stop_a, /stop_b, /stop_c, /stop_d, /stop_copy, /stop_all
+     - Emergency Kill Switches: /stop_a, /stop_b, /stop_c, /stop_d, /stop_copy, /stop_all
      - Resume Switches: /resume_a, /resume_b, /resume_c, /resume_d, /resume_copy, /resume_all
+     (Note: MT5 Native 'Algo Trading' is the Primary Operational Master Switch).
 """
 
 import logging
@@ -66,6 +68,12 @@ class Notifier:
             icon = "🚨" if ("CIRCUIT" in event_type or "HARD LOSS" in event_type or "FAIL" in event_type) else ("🎯" if "TARGET" in event_type else "⚡")
             self.send_telegram(f"{icon} *[{event_type} | {account_id.upper()}]*\n{details}")
 
+    def notify_connection_event(self, event_type: str, details: str, account_id: str = "account_a"):
+        """Sends connection disruption or recovery alert."""
+        if self.telegram_enabled:
+            icon = "🔌" if "LOST" in event_type else "✅"
+            self.send_telegram(f"{icon} *[{event_type} | {account_id.upper()}]*\n{details}")
+
     def start_command_poller(self, bot_instance):
         """Starts background listener for interactive Telegram commands."""
         if not self.telegram_enabled or not self.interactive_enabled or not self.bot_token:
@@ -119,15 +127,20 @@ class Notifier:
 
         if cmd in ("/status", "/start", "/help"):
             accounts_summary = mgr.get_all_summaries() if mgr else []
-            lines = ["🤖 *[Multi-Account Trading Bot Live Status]*\n"]
+            lines = [
+                "🤖 *[Multi-Account Trading Bot Live Status]*",
+                "⚙️ *Master Switch*: MT5 Native 'Algo Trading'\n",
+            ]
             for acc in accounts_summary:
                 p_tag = f"({acc['account_type']} - {acc['mode']})"
-                paused_tag = " ⏸ [PAUSED]" if acc.get("is_paused") else " ▶️ [ACTIVE]"
+                c_state = acc.get("connection_state", "UNKNOWN")
+                algo_state = "🟢 ALGO ON" if acc.get("algo_trading_allowed") else "🔴 ALGO OFF"
+                paused_tag = " ⏸ [EMERGENCY PAUSE]" if acc.get("is_paused") else ""
                 lines.append(
-                    f"📌 *{acc['name']}* `{acc['account_id'].upper()}` {p_tag}{paused_tag}:\n"
+                    f"📌 *{acc['name']}* `{acc['account_id'].upper()}` {p_tag}:\n"
+                    f"  • *State*: `{c_state}` | *Switch*: {algo_state}{paused_tag}\n"
                     f"  • *Equity*: ${acc['equity']:.2f} | *Balance*: ${acc['balance']:.2f}\n"
-                    f"  • *Daily P&L*: ${acc['daily_pnl']:+.2f} | *Peak*: ${acc['daily_high_water']:.2f}\n"
-                    f"  • *Drawdown*: -{acc['daily_drawdown_pct']:.1f}% | *State*: {acc['trading_state']}\n"
+                    f"  • *Daily P&L*: ${acc['daily_pnl']:+.2f} | *Drawdown*: -{acc['daily_drawdown_pct']:.1f}%\n"
                 )
 
             if copy_eng:
@@ -138,12 +151,12 @@ class Notifier:
 
             lines.append(
                 "Commands:\n"
-                "/status - Capital & Account States\n"
+                "/status - Capital & Connection States\n"
                 "/pnl - Detailed P&L Breakdown\n"
-                "/stop_a, /stop_b, /stop_c, /stop_d - Stop Specific Account\n"
+                "/stop_a, /stop_b, /stop_c, /stop_d - Emergency Stop Specific Account\n"
                 "/resume_a, /resume_b, /resume_c, /resume_d - Resume Account\n"
                 "/stop_copy, /resume_copy - Control Copy Engine\n"
-                "/stop_all, /resume_all - Global Pause/Resume\n"
+                "/stop_all, /resume_all - Global Emergency Pause/Resume\n"
                 "/closeall - Emergency Close All Positions"
             )
             self.send_telegram("\n".join(lines))
@@ -161,34 +174,34 @@ class Notifier:
                     )
             self.send_telegram("\n".join(lines))
 
-        # Individual Account Kill Switches
+        # Individual Account Emergency Kill Switches
         elif cmd in ("/stop_a", "/stop_account_a"):
-            if mgr and mgr.pause_account("account_a", "Telegram /stop_a"):
-                self.send_telegram("⏸ *[ACCOUNT A PAUSED]*: BrightFunded Account A halted. Accounts B, C, D continue trading.")
+            if mgr and mgr.pause_account("account_a", "Telegram /stop_a (Emergency Stop)"):
+                self.send_telegram("⏸ *[ACCOUNT A EMERGENCY PAUSED]*: BrightFunded Account A halted. Accounts B, C, D continue trading.")
 
         elif cmd in ("/resume_a", "/resume_account_a"):
             if mgr and mgr.resume_account("account_a"):
                 self.send_telegram("▶️ *[ACCOUNT A RESUMED]*: BrightFunded Account A trading re-enabled.")
 
         elif cmd in ("/stop_b", "/stop_account_b"):
-            if mgr and mgr.pause_account("account_b", "Telegram /stop_b"):
-                self.send_telegram("⏸ *[ACCOUNT B PAUSED]*: BrightFunded Account B halted. Accounts A, C, D continue trading.")
+            if mgr and mgr.pause_account("account_b", "Telegram /stop_b (Emergency Stop)"):
+                self.send_telegram("⏸ *[ACCOUNT B EMERGENCY PAUSED]*: BrightFunded Account B halted. Accounts A, C, D continue trading.")
 
         elif cmd in ("/resume_b", "/resume_account_b"):
             if mgr and mgr.resume_account("account_b"):
                 self.send_telegram("▶️ *[ACCOUNT B RESUMED]*: BrightFunded Account B trading re-enabled.")
 
         elif cmd in ("/stop_c", "/stop_account_c"):
-            if mgr and mgr.pause_account("account_c", "Telegram /stop_c"):
-                self.send_telegram("⏸ *[ACCOUNT C PAUSED]*: Master Account C halted.")
+            if mgr and mgr.pause_account("account_c", "Telegram /stop_c (Emergency Stop)"):
+                self.send_telegram("⏸ *[ACCOUNT C EMERGENCY PAUSED]*: Master Account C halted.")
 
         elif cmd in ("/resume_c", "/resume_account_c"):
             if mgr and mgr.resume_account("account_c"):
                 self.send_telegram("▶️ *[ACCOUNT C RESUMED]*: Master Account C trading re-enabled.")
 
         elif cmd in ("/stop_d", "/stop_account_d"):
-            if mgr and mgr.pause_account("account_d", "Telegram /stop_d"):
-                self.send_telegram("⏸ *[ACCOUNT D PAUSED]*: Follower Account D halted. Accounts A, B, C continue unaffected.")
+            if mgr and mgr.pause_account("account_d", "Telegram /stop_d (Emergency Stop)"):
+                self.send_telegram("⏸ *[ACCOUNT D EMERGENCY PAUSED]*: Follower Account D halted. Accounts A, B, C continue unaffected.")
 
         elif cmd in ("/resume_d", "/resume_account_d"):
             if mgr and mgr.resume_account("account_d"):
@@ -205,13 +218,13 @@ class Notifier:
                 copy_eng.resume_copy_engine()
                 self.send_telegram("▶️ *[COPY ENGINE RESUMED]*: Copying C -> D re-enabled.")
 
-        # Global Controls
+        # Global Emergency Controls
         elif cmd in ("/stop_all", "/pause"):
             if self.bot_instance:
                 self.bot_instance.is_manually_paused = True
                 if mgr:
-                    mgr.pause_all("Global /stop_all")
-                self.send_telegram("⏸ *[GLOBAL PAUSE]*: New entries halted across all accounts. Existing positions remain managed.")
+                    mgr.pause_all("Global /stop_all (Emergency Stop)")
+                self.send_telegram("🛑 *[GLOBAL EMERGENCY PAUSE]*: New entries halted across all accounts. Existing positions remain managed.")
 
         elif cmd in ("/resume_all", "/resume"):
             if self.bot_instance:
