@@ -32,11 +32,11 @@ funded_account:
   internal_trailing_reduced_risk_dollars: 40.0 # Drawdown $40 from HWM: Cut risk to 0.4x
   internal_trailing_hard_stop_dollars: 50.0  # Drawdown $50 from HWM: Hard stop (Leaves $10 buffer below $60)
 
-  # Individual Trade Risk Bounds ($1.50 to $3.00 max)
-  max_single_trade_risk_dollars: 3.00        # Normal maximum risk per trade (~$3.00)
+  # Individual Trade Risk Bounds ($1.50 to $3.50 max)
+  max_single_trade_risk_dollars: 3.50        # Normal maximum risk per trade (~$3.50)
   preferred_risk_min_dollars: 1.50           # Preferred risk floor ($1.50)
-  preferred_risk_max_dollars: 3.00           # Preferred risk ceiling ($3.00)
-  single_trade_hard_reject_dollars: 3.50     # Strict rejection ceiling (~$3.50 max potential loss)
+  preferred_risk_max_dollars: 3.50           # Preferred risk ceiling ($3.50)
+  single_trade_hard_reject_dollars: 4.50     # Strict rejection ceiling (~$4.50 max potential loss)
 
   # Profit Management & Daily Objectives (Aiming for $30 -> $50 -> $100+ Daily Profits)
   daily_profit_objective_min: 30.0           # +$30.00: Baseline milestone
@@ -48,10 +48,10 @@ funded_account:
 # ==============================================================================
 personal_account:
   initial_account_size_dollars: 20.0
-  max_single_trade_risk_dollars: 2.50        # Normal maximum risk per trade for min 0.01 lot Gold
+  max_single_trade_risk_dollars: 3.50        # Normal maximum risk per trade for min 0.01 lot Gold/BTC
   preferred_risk_min_dollars: 1.50           # Floor ($1.50)
-  preferred_risk_max_dollars: 2.50           # Ceiling ($2.50)
-  single_trade_hard_reject_dollars: 3.50     # Rejection if 0.01 lot loss exceeds $3.50 (keeps SL tight)
+  preferred_risk_max_dollars: 3.50           # Ceiling ($3.50)
+  single_trade_hard_reject_dollars: 4.50     # Rejection if 0.01 lot loss exceeds $4.50
   daily_drawdown_limit_dollars: 12.00        # Daily hard stop at -$12.00
   daily_profit_objective_dollars: 30.0       # Aiming high for +$30.00+ on personal account
 
@@ -173,14 +173,14 @@ symbols:
     BTCUSD:
       candidates: ["BTC/USD", "#BTCUSD", "BTCUSD", "BTCUSDm", "BTCUSD_i", "BTCUSDz", "BITCOIN", "BTC"]
       asset_type: "CRYPTO_BITCOIN"
-      max_spread_points: 2500         # Crypto spread tolerance in points
+      max_spread_points: 60000        # Crypto spread tolerance in points (handles 3-digit brokers)
       atr_period: 14
-      min_sl_distance_dollars: 150.00 # BTC volatility floor
-      max_sl_distance_dollars: 600.00
+      min_sl_distance_dollars: 100.00 # BTC volatility floor
+      max_sl_distance_dollars: 350.00
       zone_band_points: 100.0
       risk_multiplier: 1.0
-      scalp_min_sl_dollars: 120.00
-      scalp_max_sl_dollars: 350.00
+      scalp_min_sl_dollars: 80.00
+      scalp_max_sl_dollars: 280.00
 
 # ==============================================================================
 # 6. ENGINE 1: Musumali Institutional Liquidity Sweeps (M30, H1, H4, D1) [Magic: 2001]
@@ -212,7 +212,7 @@ zone_management:
   zone_cooldown_minutes: 15
 
 # ==============================================================================
-# 8. ENGINE 2: HIGH-CONVICTION SCALPER (M5, M15 Confirmation) [Magic: 1001]
+# 8. ENGINE 2: HIGH-CONVICTION MICRO-SCALPER (M1, M5, M15) [Magic: 1001]
 # ==============================================================================
 m1_scalper:
   enabled: true
@@ -223,8 +223,8 @@ m1_scalper:
   trend_ema_period: 20
   trend_slope_bars: 3
   magic_number: 1001                  # Unique Magic Number for M1_Scalp
-  timeframes: ["M5", "M15"]           # Solid M5/M15 confirmed candles (filters out noisy 60s M1 chop)
-  min_quality_score: 85               # Ultra High-Conviction Quality Score Threshold (>= 85)
+  timeframes: ["M1", "M5", "M15"]     # Active multi-timeframe micro-scalping (M1, M5, M15)
+  min_quality_score: 80               # High-Conviction Quality Score Threshold (>= 80)
   max_concurrent_scalp: 1             # Max 1 active scalper position per account
   fast_ema: 7
   slow_ema: 16
