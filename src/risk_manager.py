@@ -271,6 +271,8 @@ class RiskManager:
 
         if profit < loss_threshold:
             # Loss recorded
+            self.last_trade_was_loss = True
+            self.last_loss_time = now
             self.account_consecutive_losses += 1
             self.engine_consecutive_losses[m_key] = self.engine_consecutive_losses.get(m_key, 0) + 1
             self.symbol_consecutive_losses[sym_key] = self.symbol_consecutive_losses.get(sym_key, 0) + 1
@@ -297,6 +299,7 @@ class RiskManager:
 
         elif profit > win_threshold:
             # Win recorded
+            self.last_trade_was_loss = False
             self.account_consecutive_losses = 0
             self.engine_consecutive_losses[m_key] = 0
             self.symbol_consecutive_losses[sym_key] = 0
@@ -668,8 +671,10 @@ class RiskManager:
             if (order_type == "BUY" and p_dir == "SELL") or (order_type == "SELL" and p_dir == "BUY"):
                 failures.append(f"Check 12 Fail: Opposing hedge on {symbol} strictly forbidden (Existing #{p['ticket']} is {p_dir})")
 
-        # 13. Trade spacing cooldown
-        spacing_cd = self.config.get("harmony_rules", {}).get("cooldown_seconds_per_trade", 30)
+        # 13. Trade spacing cooldown & Post-Loss Cooldown
+        spacing_cd = self.config.get("harmony_rules", {}).get("cooldown_seconds_per_trade", 180)
+        if getattr(self, "last_trade_was_loss", False):
+            spacing_cd = max(spacing_cd, 300)
         time_since_last = time.time() - last_trade_time
         if time_since_last < spacing_cd:
             failures.append(f"Check 13 Fail: Trade spacing cooldown active ({spacing_cd - time_since_last:.1f}s remaining)")

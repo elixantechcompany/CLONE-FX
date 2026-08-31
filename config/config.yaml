@@ -276,7 +276,7 @@ harmony_rules:
   max_musumali_positions: 1           # Max 1 Musumali trade per account
   max_scalper_positions: 1            # Max 1 Scalper trade per account
   max_positions_per_symbol: 1         # Max 1 open position per symbol per account
-  cooldown_seconds_per_trade: 30      # 30-second cooldown after trade close
+  cooldown_seconds_per_trade: 180     # 3-minute spacing between trades to eliminate overtrading chop
 
 # ==============================================================================
 # 11. RISK MANAGEMENT & SIZING ENGINE (SHARED LOGIC, ISOLATED STATE)
@@ -311,25 +311,25 @@ risk_management:
     enabled: true
     sessions:
       "London/NY Overlap":
-        quality_score_threshold: 70
+        quality_score_threshold: 75
         max_spread_points_xau: 320
         max_spread_points_btc: 2500
       "London":
-        quality_score_threshold: 70
+        quality_score_threshold: 75
         max_spread_points_xau: 320
         max_spread_points_btc: 2500
       "New York":
-        quality_score_threshold: 70
+        quality_score_threshold: 75
         max_spread_points_xau: 320
         max_spread_points_btc: 2500
       "Asian":
-        quality_score_threshold: 75
-        max_spread_points_xau: 280
-        max_spread_points_btc: 2200
+        quality_score_threshold: 80
+        max_spread_points_xau: 260
+        max_spread_points_btc: 2000
       "Late Asian/Off-Hours":
-        quality_score_threshold: 75
-        max_spread_points_xau: 300
-        max_spread_points_btc: 2400
+        quality_score_threshold: 80
+        max_spread_points_xau: 260
+        max_spread_points_btc: 2000
 
 # ==============================================================================
 # 12. BRIGHTFUNDED CIRCUIT BREAKERS & DRAWDOWN BUFFERS
