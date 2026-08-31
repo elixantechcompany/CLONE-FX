@@ -672,9 +672,9 @@ class RiskManager:
                 failures.append(f"Check 12 Fail: Opposing hedge on {symbol} strictly forbidden (Existing #{p['ticket']} is {p_dir})")
 
         # 13. Trade spacing cooldown & Post-Loss Cooldown
-        spacing_cd = self.config.get("harmony_rules", {}).get("cooldown_seconds_per_trade", 180)
+        spacing_cd = self.config.get("harmony_rules", {}).get("cooldown_seconds_per_trade", 90)
         if getattr(self, "last_trade_was_loss", False):
-            spacing_cd = max(spacing_cd, 300)
+            spacing_cd = max(spacing_cd, 180)
         time_since_last = time.time() - last_trade_time
         if time_since_last < spacing_cd:
             failures.append(f"Check 13 Fail: Trade spacing cooldown active ({spacing_cd - time_since_last:.1f}s remaining)")

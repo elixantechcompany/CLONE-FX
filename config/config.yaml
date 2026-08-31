@@ -215,7 +215,7 @@ m1_scalper:
   trend_slope_bars: 3
   magic_number: 1001                  # Unique Magic Number for M1_Scalp
   timeframes: ["M1", "M5", "M15"]     # Active multi-timeframe micro-scalping
-  min_quality_score: 75               # Raised Quality Score Threshold for High Selectivity
+  min_quality_score: 70               # Agile Quality Score Threshold
   max_concurrent_scalp: 1             # Max 1 active scalper position per account
   fast_ema: 7
   slow_ema: 16
@@ -276,27 +276,24 @@ harmony_rules:
   max_musumali_positions: 1           # Max 1 Musumali trade per account
   max_scalper_positions: 1            # Max 1 Scalper trade per account
   max_positions_per_symbol: 1         # Max 1 open position per symbol per account
-  cooldown_seconds_per_trade: 180     # 3-minute spacing between trades to eliminate overtrading chop
+  cooldown_seconds_per_trade: 90      # 90-second agile spacing between trades
 
 # ==============================================================================
 # 11. RISK MANAGEMENT & SIZING ENGINE (SHARED LOGIC, ISOLATED STATE)
 # ==============================================================================
 risk_management:
   lot_mode: "dynamic_risk"            # STRICTLY DYNAMIC: Never fixed lots
-  compounding:
-    enabled: false                    # Disabled in favor of strict monetary risk
-  risk_per_trade_percent: 0.40        # 0.40% on $1,000 = $4.00 base (scaled to $2.50-$5.00 by quality)
-  max_total_account_risk_percent: 0.80 # Total portfolio risk ceiling across account
-  fixed_lot_size: 0.01                # Micro-lot floor
-  max_daily_trades: 12                # Highly selective daily trade cap
-  slippage_points: 30                 # Slippage tolerance in broker points
+  risk_per_trade_percent: 0.25        # Base 0.25% ($2.50 per trade on $1,000)
+  max_daily_trades: 16                # Max 16 trades per day across account
+  max_consecutive_losses: 3           # Max 3 consecutive losses before cooldown
+  loss_cooldown_minutes: 15           # 15-minute cooldown on 3 losses
   
-  # Adaptive Consecutive Losses Circuit Rules
+  # Module Consecutive Loss Multi-Tier Rules
   consecutive_losses:
-    caution_threshold: 2              # 2 losses: Reduce risk by 50%, require quality score >= 80
-    reduce_risk_threshold: 2          # 2 losses: Cut sizing
-    restrict_trading_threshold: 3     # 3 losses: Pause affected module for 30 minutes
-    pause_module_threshold: 3         # 3 losses: Pause affected module/symbol for cooldown
+    caution_threshold: 2              # 2 losses -> state CAUTION
+    reduce_risk_threshold: 2          # 2 losses -> 50% risk reduction
+    restrict_trading_threshold: 3     # 3 losses -> state RESTRICTED
+    pause_module_threshold: 3         # 3 losses -> pause module for cooldown
     module_cooldown_minutes: 30       # 30-minute cooling window
 
   # High-Impact Macro News Filter
@@ -311,25 +308,25 @@ risk_management:
     enabled: true
     sessions:
       "London/NY Overlap":
-        quality_score_threshold: 75
+        quality_score_threshold: 68
         max_spread_points_xau: 320
         max_spread_points_btc: 2500
       "London":
-        quality_score_threshold: 75
+        quality_score_threshold: 68
         max_spread_points_xau: 320
         max_spread_points_btc: 2500
       "New York":
-        quality_score_threshold: 75
+        quality_score_threshold: 68
         max_spread_points_xau: 320
         max_spread_points_btc: 2500
       "Asian":
-        quality_score_threshold: 80
-        max_spread_points_xau: 260
-        max_spread_points_btc: 2000
+        quality_score_threshold: 70
+        max_spread_points_xau: 280
+        max_spread_points_btc: 2200
       "Late Asian/Off-Hours":
-        quality_score_threshold: 80
-        max_spread_points_xau: 260
-        max_spread_points_btc: 2000
+        quality_score_threshold: 70
+        max_spread_points_xau: 280
+        max_spread_points_btc: 2200
 
 # ==============================================================================
 # 12. BRIGHTFUNDED CIRCUIT BREAKERS & DRAWDOWN BUFFERS
