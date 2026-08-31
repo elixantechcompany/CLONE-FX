@@ -35,17 +35,15 @@ class RiskManager:
         self.account_id = account_id.lower()
         self.connector = connector
         
-        # Determine account type
-        if account_type:
-            self.account_type = account_type.upper()
+        # Determine account type & initial balance
+        acc_list = config.get("accounts", {}).get("account_list", [])
+        matched = [a for a in acc_list if str(a.get("id", "")).lower() == self.account_id]
+        if matched:
+            self.account_type = account_type.upper() if account_type else matched[0].get("type", "BRIGHTFUNDED").upper()
+            configured_balance = float(matched[0].get("balance", 0.0))
         else:
-            # Look up in accounts list
-            acc_list = config.get("accounts", {}).get("account_list", [])
-            matched = [a for a in acc_list if str(a.get("id", "")).lower() == self.account_id]
-            if matched:
-                self.account_type = matched[0].get("type", "BRIGHTFUNDED").upper()
-            else:
-                self.account_type = "BRIGHTFUNDED"
+            self.account_type = account_type.upper() if account_type else "BRIGHTFUNDED"
+            configured_balance = 0.0
 
         self.funded_cfg = config.get("funded_account", {})
         self.personal_cfg = config.get("personal_account", {})
@@ -55,28 +53,29 @@ class RiskManager:
         self.symbols_cfg = config.get("symbols", {})
 
         if self.account_type == "PERSONAL":
-            # Personal $20 Profile
-            self.initial_account_size = float(self.personal_cfg.get("initial_account_size_dollars", 20.0))
-            self.challenge_target_profit = float(self.personal_cfg.get("daily_profit_objective_dollars", 2.0))
-            self.firm_daily_limit = float(self.personal_cfg.get("daily_drawdown_limit_dollars", 3.0))
-            self.firm_trailing_limit = float(self.personal_cfg.get("daily_drawdown_limit_dollars", 4.0))
+            # Personal Micro Profile
+            default_size = configured_balance if configured_balance > 0 else float(self.personal_cfg.get("initial_account_size_dollars", 20.0))
+            self.initial_account_size = default_size
+            self.challenge_target_profit = float(self.personal_cfg.get("daily_profit_objective_dollars", 30.0))
+            self.firm_daily_limit = float(self.personal_cfg.get("daily_drawdown_limit_dollars", 6.0))
+            self.firm_trailing_limit = float(self.personal_cfg.get("daily_drawdown_limit_dollars", 8.0))
 
-            self.daily_warning_loss = 1.50
-            self.daily_reduced_risk_loss = 2.00
-            self.daily_hard_stop_loss = float(self.personal_cfg.get("daily_drawdown_limit_dollars", 3.00))
+            self.daily_warning_loss = 3.00
+            self.daily_reduced_risk_loss = 4.50
+            self.daily_hard_stop_loss = float(self.personal_cfg.get("daily_drawdown_limit_dollars", 6.00))
 
-            self.trailing_warning_drawdown = 2.00
-            self.trailing_reduced_risk_drawdown = 3.00
-            self.trailing_hard_stop_drawdown = 4.00
+            self.trailing_warning_drawdown = 4.00
+            self.trailing_reduced_risk_drawdown = 6.00
+            self.trailing_hard_stop_drawdown = 8.00
 
-            self.max_single_trade_risk = float(self.personal_cfg.get("max_single_trade_risk_dollars", 0.50))
-            self.preferred_risk_min = float(self.personal_cfg.get("preferred_risk_min_dollars", 0.25))
-            self.preferred_risk_max = float(self.personal_cfg.get("preferred_risk_max_dollars", 0.50))
-            self.single_trade_hard_reject = float(self.personal_cfg.get("single_trade_hard_reject_dollars", 1.00))
+            self.max_single_trade_risk = float(self.personal_cfg.get("max_single_trade_risk_dollars", 2.50))
+            self.preferred_risk_min = float(self.personal_cfg.get("preferred_risk_min_dollars", 1.50))
+            self.preferred_risk_max = float(self.personal_cfg.get("preferred_risk_max_dollars", 2.50))
+            self.single_trade_hard_reject = float(self.personal_cfg.get("single_trade_hard_reject_dollars", 3.50))
 
-            self.profit_protect_trigger = 1.50
-            self.profit_high_selectivity_trigger = 1.80
-            self.profit_target_stop = float(self.personal_cfg.get("daily_profit_objective_dollars", 2.00))
+            self.profit_protect_trigger = 10.00
+            self.profit_high_selectivity_trigger = 20.00
+            self.profit_target_stop = float(self.personal_cfg.get("daily_profit_objective_dollars", 30.00))
         else:
             # BrightFunded $1,000 Profile
             self.initial_account_size = float(self.funded_cfg.get("initial_account_size_dollars", 1000.0))
@@ -490,7 +489,7 @@ class RiskManager:
             self.circuit_tripped = True
             self.trading_state = "CHALLENGE_PASSED"
             self.trip_reason = (
-                f"🎉 TARGET PASSED! Total Profit = +${challenge_pnl:.2f} >= +${self.challenge_target_profit:.2f}. "
+                f"[TARGET ACHIEVED] Total Profit = +${challenge_pnl:.2f} >= +${self.challenge_target_profit:.2f}. "
                 f"Trading LOCKED to protect achievement."
             )
             logger.info(f"[{self.account_id.upper()}] {self.trip_reason}")

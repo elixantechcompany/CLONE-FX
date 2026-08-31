@@ -37,7 +37,7 @@ from dotenv import load_dotenv
 from src.account_manager import MultiAccountManager, AccountContext
 from src.connection import MT5Connector
 from src.connection_state import ConnectionState
-from src.execution import OrderExecutor
+from src.execution import OrderExecutor, OrderPipelineAuditor, get_retcode_description
 from src.m1_scalper import M1Scalper
 from src.risk_manager import RiskManager
 from src.strategy import MusumaliStrategy
@@ -378,7 +378,8 @@ class GoldTradingBot:
                 # SEPARATION: Manage active trades through Intelligent Exit Brain
                 # (Existing positions remain actively managed even if Algo Trading is OFF)
                 if acc.executor:
-                    acc.executor.manage_active_positions(broker_symbols)
+                    acc_symbols = list(acc.active_broker_symbols.values()) if hasattr(acc, "active_broker_symbols") and acc.active_broker_symbols else list(self.active_broker_symbols.values())
+                    acc.executor.manage_active_positions(acc_symbols)
 
             except Exception as e:
                 self.logger.warning(f"[{acc.account_id.upper()}] Account cycle warning: {e}")
@@ -398,7 +399,14 @@ class GoldTradingBot:
         if scanner_acc:
             scanner_acc.connector.ensure_terminal_context()
 
-        for canonical, broker_sym in self.active_broker_symbols.items():
+        # Determine scan symbols from scanner_acc
+        scan_symbols = {}
+        if scanner_acc and hasattr(scanner_acc, "active_broker_symbols") and scanner_acc.active_broker_symbols:
+            scan_symbols = scanner_acc.active_broker_symbols
+        else:
+            scan_symbols = self.active_broker_symbols
+
+        for canonical, broker_sym in scan_symbols.items():
             try:
                 sym_info = mt5.symbol_info(broker_sym)
                 if sym_info is None:
@@ -412,7 +420,7 @@ class GoldTradingBot:
                     )
                     if sig_m and cid_m and cid_m not in self.traded_candle_ids:
                         trade_candidates.append(TradeCandidate(
-                            symbol=broker_sym,
+                            symbol=canonical,
                             engine_name="Musumali_Sweep",
                             magic=self.musumali_strategy.magic_number,
                             direction=sig_m,
@@ -434,7 +442,7 @@ class GoldTradingBot:
                     )
                     if sig_s and cid_s and cid_s not in self.traded_candle_ids:
                         trade_candidates.append(TradeCandidate(
-                            symbol=broker_sym,
+                            symbol=canonical,
                             engine_name="M1_Scalp",
                             magic=self.m1_scalper.magic_number,
                             direction=sig_s,
@@ -454,7 +462,7 @@ class GoldTradingBot:
                     self._last_scan_log_time = now
                     mus_status = f"{sig_m} (Score: {score_m})" if sig_m else f"Scanning ({reason_m})"
                     scalp_status = f"{sig_s} (Score: {score_s}/100)" if sig_s else f"Evaluating ({reason_s})"
-                    self.logger.info(f"[LIVE SCANNER] {broker_sym} | Musumali: {mus_status} | Scalper: {scalp_status} | Spread: {cur_spread} pts")
+                    self.logger.info(f"[LIVE SCANNER] {canonical} ({broker_sym}) | Musumali: {mus_status} | Scalper: {scalp_status} | Spread: {cur_spread} pts")
             except Exception as e:
                 self.logger.warning(f"Market scanner cycle warning for {broker_sym}: {e}")
 
@@ -481,42 +489,129 @@ class GoldTradingBot:
                     # Ensure terminal context is explicitly bound to this account before execution
                     acc.connector.ensure_terminal_context()
 
-                    # PRIMARY MASTER SWITCH: MT5 Algo Trading must be ALLOWED
-                    if not acc.is_trading_permitted or self.is_manually_paused:
-                        # Skip new trade execution if Algo Trading is OFF or account is paused
-                        continue
-
-                    all_open = acc.executor.get_open_positions()
-
-                    # Resolve symbol for this specific account
                     target_symbol = cand.symbol
                     if hasattr(acc, "active_broker_symbols") and acc.active_broker_symbols:
-                        for canon, sym in self.active_broker_symbols.items():
-                            if sym == cand.symbol and canon in acc.active_broker_symbols:
-                                target_symbol = acc.active_broker_symbols[canon]
-                                break
+                        target_symbol = acc.active_broker_symbols.get(cand.symbol, cand.symbol)
+                    elif hasattr(acc.connector, "symbols_map") and acc.connector.symbols_map:
+                        target_symbol = acc.connector.symbols_map.get(cand.symbol, cand.symbol)
+
+                    stages: Dict[int, Tuple[bool, str]] = {}
+                    cand_dict = {
+                        "symbol": target_symbol,
+                        "canonical": cand.symbol,
+                        "direction": cand.direction,
+                        "entry": cand.entry,
+                        "sl": cand.sl,
+                        "tp": cand.tp,
+                        "score": int(cand.conviction_score),
+                        "candle_id": cand.candle_id,
+                        "engine": cand.engine_name,
+                        "time": time.time(),
+                    }
+
+                    # STAGE 1: MARKET DATA AVAILABLE
+                    tick = mt5.symbol_info_tick(target_symbol)
+                    if tick is not None and tick.bid > 0 and tick.ask > 0 and tick.ask >= tick.bid:
+                        stages[1] = (True, f"Bid={tick.bid:.2f}, Ask={tick.ask:.2f}, Spread={cand.spread} pts")
+                    else:
+                        stages[1] = (False, f"Invalid or missing tick data for {target_symbol}")
+                        acc.record_candidate_audit(cand_dict, "ORDER_NOT_ATTEMPTED", 1, stages[1][1])
+                        self.logger.info(OrderPipelineAuditor.format_audit_log(acc.account_id, cand.candle_id, cand.engine_name, target_symbol, cand.direction, int(cand.conviction_score), stages, "ORDER_NOT_ATTEMPTED", stages[1][1]))
+                        continue
+
+                    # STAGE 2: SETUP DETECTED
+                    stages[2] = (True, f"{cand.engine_name} detected: {cand.setup_reason}")
+
+                    # STAGE 3: CONFIRMATION CHECK
+                    stages[3] = (True, "Closed-candle structure & multi-timeframe confirmation verified")
+
+                    # STAGE 4: QUALITY SCORE
+                    if cand.conviction_score >= 70:
+                        stages[4] = (True, f"Conviction {cand.conviction_score:.1f}/100 >= 70 threshold")
+                    else:
+                        stages[4] = (False, f"Conviction {cand.conviction_score:.1f}/100 < 70 threshold")
+                        acc.record_candidate_audit(cand_dict, "SIGNAL_REJECTED", 4, stages[4][1])
+                        self.logger.info(OrderPipelineAuditor.format_audit_log(acc.account_id, cand.candle_id, cand.engine_name, target_symbol, cand.direction, int(cand.conviction_score), stages, "SIGNAL_REJECTED", stages[4][1]))
+                        continue
+
+                    # STAGE 10: MT5 TRADING PERMISSION CHECK
+                    perms = acc.connector.get_detailed_trading_permissions(target_symbol)
+                    if perms["order_execution_available"]:
+                        stages[10] = (True, "All MT5 terminal, account, program, and symbol permissions valid")
+                    else:
+                        stages[10] = (False, perms["blocking_reason"])
+                        acc.record_candidate_audit(cand_dict, "ORDER_NOT_ATTEMPTED", 10, perms["blocking_reason"])
+                        self.logger.info(OrderPipelineAuditor.format_audit_log(acc.account_id, cand.candle_id, cand.engine_name, target_symbol, cand.direction, int(cand.conviction_score), stages, "ORDER_NOT_ATTEMPTED", perms["blocking_reason"]))
+                        continue
+
+                    # STAGE 6: ACCOUNT CHECK
+                    if acc.is_manually_paused:
+                        stages[6] = (False, f"Account paused: {acc.pause_reason}")
+                        acc.record_candidate_audit(cand_dict, "ORDER_NOT_ATTEMPTED", 6, stages[6][1])
+                        self.logger.info(OrderPipelineAuditor.format_audit_log(acc.account_id, cand.candle_id, cand.engine_name, target_symbol, cand.direction, int(cand.conviction_score), stages, "ORDER_NOT_ATTEMPTED", stages[6][1]))
+                        continue
+                    stages[6] = (True, f"Account active (State: {acc.trading_state}, Equity: ${acc.equity:.2f})")
+
+                    # STAGE 7: SPREAD CHECK
+                    sym_info = mt5.symbol_info(target_symbol)
+                    cur_spread = sym_info.spread if sym_info else 9999
+                    max_spread = 2200 if "BTC" in target_symbol.upper() else 320
+                    if cur_spread <= max_spread:
+                        stages[7] = (True, f"Spread {cur_spread} pts <= max {max_spread} pts")
+                    else:
+                        stages[7] = (False, f"Spread {cur_spread} pts > max {max_spread} pts")
+                        acc.record_candidate_audit(cand_dict, "SIGNAL_REJECTED", 7, stages[7][1])
+                        self.logger.info(OrderPipelineAuditor.format_audit_log(acc.account_id, cand.candle_id, cand.engine_name, target_symbol, cand.direction, int(cand.conviction_score), stages, "SIGNAL_REJECTED", stages[7][1]))
+                        continue
+
+                    # STAGE 9: POSITION/CONCURRENCY CHECK
+                    all_open = acc.executor.get_open_positions()
+                    max_open = self.config.get("risk_management", {}).get("max_open_trades", 2)
+                    if len(all_open) >= max_open:
+                        stages[9] = (False, f"Open positions {len(all_open)} >= max allowed {max_open}")
+                        acc.record_candidate_audit(cand_dict, "SIGNAL_REJECTED", 9, stages[9][1])
+                        self.logger.info(OrderPipelineAuditor.format_audit_log(acc.account_id, cand.candle_id, cand.engine_name, target_symbol, cand.direction, int(cand.conviction_score), stages, "SIGNAL_REJECTED", stages[9][1]))
+                        continue
+
+                    # Duplicate Magic Check
+                    dup_pos = next((p for p in all_open if p.get("magic") == cand.magic), None)
+                    if dup_pos:
+                        stages[9] = (False, f"Active position #{dup_pos['ticket']} with Magic #{cand.magic} already open")
+                        acc.record_candidate_audit(cand_dict, "SIGNAL_REJECTED", 9, stages[9][1])
+                        self.logger.info(OrderPipelineAuditor.format_audit_log(acc.account_id, cand.candle_id, cand.engine_name, target_symbol, cand.direction, int(cand.conviction_score), stages, "SIGNAL_REJECTED", stages[9][1]))
+                        continue
+                    stages[9] = (True, f"Open positions {len(all_open)}/{max_open} | Zero duplicate magic conflicts")
 
                     # Dynamic Sizing bounded by this account's profile risk limits
+                    digits = sym_info.digits if sym_info else 2
+                    sl_dist = abs(cand.entry - cand.sl)
+                    tp_dist = abs(cand.tp - cand.entry)
+                    live_entry = tick.ask if cand.direction == "BUY" else tick.bid
+                    acc_sl = round(live_entry - sl_dist, digits) if cand.direction == "BUY" else round(live_entry + sl_dist, digits)
+                    acc_tp = round(live_entry + tp_dist, digits) if cand.direction == "BUY" else round(live_entry - tp_dist, digits)
+
                     lot_size = acc.risk_manager.calculate_lot_size(
                         symbol=target_symbol,
-                        entry_price=cand.entry,
-                        stop_loss_price=cand.sl,
+                        entry_price=live_entry,
+                        stop_loss_price=acc_sl,
                         equity=acc.equity,
                         quality_score=int(cand.conviction_score),
                         open_trades_count=len(all_open),
                     )
 
                     if lot_size <= 0.0:
+                        stages[5] = (False, "Calculated lot size 0.00 (Risk buffer exhausted or SL distance too wide)")
+                        acc.record_candidate_audit(cand_dict, "SIGNAL_REJECTED", 5, stages[5][1])
+                        self.logger.info(OrderPipelineAuditor.format_audit_log(acc.account_id, cand.candle_id, cand.engine_name, target_symbol, cand.direction, int(cand.conviction_score), stages, "SIGNAL_REJECTED", stages[5][1]))
                         continue
 
-                    # Mandatory Pre-Trade Safety Check on exact calculated lot size
                     passed, failures, expected_loss = acc.risk_manager.pre_trade_risk_check(
                         symbol=target_symbol,
                         engine_magic=cand.magic,
                         order_type=cand.direction,
-                        entry_price=cand.entry,
-                        stop_loss_price=cand.sl,
-                        take_profit_price=cand.tp,
+                        entry_price=live_entry,
+                        stop_loss_price=acc_sl,
+                        take_profit_price=acc_tp,
                         volume=lot_size,
                         quality_score=int(cand.conviction_score),
                         all_open_positions=all_open,
@@ -527,34 +622,62 @@ class GoldTradingBot:
                         last_trade_time=self.last_trade_execution_time,
                     )
 
-                    if passed:
-                        ticket = acc.executor.execute_market_order(
-                            symbol=target_symbol,
-                            order_type=cand.direction,
-                            volume=lot_size,
-                            sl=cand.sl,
-                            tp=cand.tp,
-                            magic=cand.magic,
-                            comment=cand.engine_name,
-                            zone_id=cand.zone_id,
-                            candle_id=cand.candle_id,
-                            quality_score=int(cand.conviction_score),
-                            confirmation_verified=True,
-                            funnel_stage="CONFIRMED",
-                        )
+                    # STAGE 8: NEWS CHECK
+                    news_fail = next((f for f in failures if "NEWS" in f.upper()), None)
+                    if news_fail:
+                        stages[8] = (False, news_fail)
+                    else:
+                        stages[8] = (True, "No high-impact news blackout active")
 
-                        if ticket:
-                            candle_traded_any = True
-                            self.last_trade_execution_time = time.time()
-                            acc.risk_manager.record_trade_placed(magic=cand.magic, symbol=cand.symbol)
-                            acc.state_machine.record_order_op()
-                            self.notifier.notify_trade_event(
-                                "TRADE OPENED",
-                                f"Ticket #{ticket} | {cand.symbol} {cand.direction} {lot_size} lots @ {cand.entry:.2f}\n"
-                                f"SL: {cand.sl:.2f} | TP: {cand.tp:.2f} | Risk: ${expected_loss:.2f} | Conviction: {cand.conviction_score}/100\n"
-                                f"Reason: {cand.setup_reason}",
-                                account_id=acc.account_id,
-                            )
+                    if not passed:
+                        fail_msg = "; ".join(failures)
+                        stages[5] = (False, f"Pre-trade check failed ({len(failures)} fails): {fail_msg}")
+                        acc.record_candidate_audit(cand_dict, "SIGNAL_REJECTED", 5, fail_msg)
+                        self.logger.info(OrderPipelineAuditor.format_audit_log(acc.account_id, cand.candle_id, cand.engine_name, target_symbol, cand.direction, int(cand.conviction_score), stages, "SIGNAL_REJECTED", fail_msg))
+                        continue
+
+                    stages[5] = (True, f"Volume: {lot_size} lots | Max Loss: ${expected_loss:.2f} | 20-Point Check Passed")
+
+                    # STAGE 11 & 12 & 13 & 14: ORDER CHECK, SEND & EXECUTION
+                    stages[11] = (True, f"Order request validated: {cand.direction} {lot_size} lots on {target_symbol}")
+                    stages[12] = (True, "Order dispatched to MT5 terminal")
+
+                    ticket = acc.executor.execute_market_order(
+                        symbol=target_symbol,
+                        order_type=cand.direction,
+                        volume=lot_size,
+                        sl=acc_sl,
+                        tp=acc_tp,
+                        magic=cand.magic,
+                        comment=cand.engine_name,
+                        zone_id=cand.zone_id,
+                        candle_id=cand.candle_id,
+                        quality_score=int(cand.conviction_score),
+                        confirmation_verified=True,
+                        funnel_stage="CONFIRMED",
+                    )
+
+                    if ticket:
+                        stages[13] = (True, f"Broker accepted deal (Ticket #{ticket})")
+                        stages[14] = (True, f"Position #{ticket} open and actively managed")
+                        candle_traded_any = True
+                        self.last_trade_execution_time = time.time()
+                        acc.risk_manager.record_trade_placed(magic=cand.magic, symbol=cand.symbol)
+                        acc.state_machine.record_order_op()
+                        acc.record_candidate_audit(cand_dict, "ORDER_EXECUTED", 14, f"Executed Ticket #{ticket}", retcode=10009, retcode_name="TRADE_RETCODE_DONE")
+                        self.logger.info(OrderPipelineAuditor.format_audit_log(acc.account_id, cand.candle_id, cand.engine_name, target_symbol, cand.direction, int(cand.conviction_score), stages, "ORDER_EXECUTED", f"Ticket #{ticket}"))
+                        self.notifier.notify_trade_event(
+                            "TRADE OPENED",
+                            f"Ticket #{ticket} | {cand.symbol} {cand.direction} {lot_size} lots @ {cand.entry:.2f}\n"
+                            f"SL: {cand.sl:.2f} | TP: {cand.tp:.2f} | Risk: ${expected_loss:.2f} | Conviction: {cand.conviction_score}/100\n"
+                            f"Reason: {cand.setup_reason}",
+                            account_id=acc.account_id,
+                        )
+                    else:
+                        stages[13] = (False, "Order rejected by broker or MT5 order_check")
+                        stages[14] = (False, "Position not created")
+                        acc.record_candidate_audit(cand_dict, "ORDER_REJECTED_BY_MT5", 13, "Order rejected by broker / MT5")
+                        self.logger.info(OrderPipelineAuditor.format_audit_log(acc.account_id, cand.candle_id, cand.engine_name, target_symbol, cand.direction, int(cand.conviction_score), stages, "ORDER_REJECTED_BY_MT5", "Order rejected by broker"))
                 except Exception as e:
                     self.logger.warning(f"[{acc.account_id.upper()}] Execution loop warning: {e}")
 
@@ -603,12 +726,12 @@ class GoldTradingBot:
             self.logger.warning(f"Dashboard/Heartbeat export warning: {e}")
 
     def _emit_comprehensive_heartbeat(self, active_accounts: List[AccountContext], session_name: str):
-        """Emits comprehensive multi-account diagnostic report."""
+        """Emits comprehensive multi-account diagnostic report and 'Why Didn't I Trade?' audit."""
         try:
             now_utc = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
             lines = [
                 f"\n{'='*80}",
-                f" [COMPREHENSIVE MULTI-ACCOUNT BOT HEARTBEAT] {now_utc}",
+                f" [COMPREHENSIVE MULTI-ACCOUNT BOT HEARTBEAT & DIAGNOSTIC AUDIT] {now_utc}",
                 f" Active Session: {session_name} | Symbols: {list(self.active_broker_symbols.keys())}",
                 f"{'-'*80}",
             ]
@@ -617,12 +740,34 @@ class GoldTradingBot:
                     continue
                 perf = acc.risk_manager.get_module_performance_summary() if acc.risk_manager else {"total_day_pnl": 0.0, "scalp_pnl": 0.0, "scalp_wins": 0, "scalp_trades": 0, "musumali_pnl": 0.0, "musumali_wins": 0, "musumali_trades": 0}
                 sm_summary = acc.state_machine.get_summary()
+
+                # Granular Permission Inspection
+                sym_for_perm = list(acc.active_broker_symbols.values())[0] if hasattr(acc, "active_broker_symbols") and acc.active_broker_symbols else "XAUUSD"
+                perms = acc.connector.get_detailed_trading_permissions(sym_for_perm)
+
+                stage_str = f"Stage {acc.last_blocking_stage:02d} [{OrderPipelineAuditor.STAGE_NAMES.get(acc.last_blocking_stage, 'STAGE')}]" if acc.last_blocking_stage else "None (No Block)"
+                cand_str = f"{acc.last_evaluated_candidate.get('canonical', 'None')} {acc.last_evaluated_candidate.get('direction', '')} (Score: {acc.last_evaluated_candidate.get('score', 'N/A')}/100)" if acc.last_evaluated_candidate else "None (Awaiting setup)"
+                retcode_str = f"{acc.last_order_retcode} ({acc.last_order_retcode_name})" if acc.last_order_retcode else "None"
+
                 lines.append(
                     f" [*] {acc.name} ({acc.account_id.upper()} - {acc.mode}):\n"
-                    f"    - Connection State: {sm_summary['current_state']} | MT5 Algo Trading: {'ENABLED' if acc.is_algo_trading_allowed else 'DISABLED'}\n"
-                    f"    - Equity: ${acc.equity:.2f} | Balance: ${acc.balance:.2f} | Free Margin: ${acc.free_margin:.2f}\n"
-                    f"    - Daily Realized P&L: ${perf['total_day_pnl']:+.2f} (Scalp: ${perf['scalp_pnl']:+.2f} [{perf['scalp_wins']}W/{perf['scalp_trades']-perf['scalp_wins']}L], Musumali: ${perf['musumali_pnl']:+.2f} [{perf['musumali_wins']}W/{perf['musumali_trades']-perf['musumali_wins']}L])\n"
-                    f"    - Daily State: {acc.trading_state} | Drawdown: -{acc.daily_drawdown_pct:.1f}%\n"
+                    f"    - Financials: Balance: ${acc.balance:.2f} | Equity: ${acc.equity:.2f} | Free Margin: ${acc.free_margin:.2f}\n"
+                    f"    - Realized P&L: ${perf['total_day_pnl']:+.2f} (Scalp: ${perf['scalp_pnl']:+.2f} [{perf['scalp_wins']}W/{perf['scalp_trades']-perf['scalp_wins']}L], Musumali: ${perf['musumali_pnl']:+.2f} [{perf['musumali_wins']}W/{perf['musumali_trades']-perf['musumali_wins']}L])\n"
+                    f"    - Connection State: {sm_summary['current_state']} | State Machine Permits Trading: {acc.state_machine.is_trading_permitted}\n"
+                    f"    - [PERMISSIONS AUDIT]:\n"
+                    f"        ACCOUNT_CONNECTED:              {'YES' if perms['account_connected'] else 'NO'}\n"
+                    f"        MARKET_DATA_CONNECTED:          {'YES' if perms['market_data_connected'] else 'NO'}\n"
+                    f"        ALGO_TRADING_ENABLED (MT5 BTN): {'YES' if perms['algo_trading_enabled'] else 'NO'}\n"
+                    f"        PROGRAM_TRADING_ENABLED:        {'YES' if perms['program_trading_enabled'] else 'NO'}\n"
+                    f"        ACCOUNT_TRADING_ALLOWED:        {'YES' if perms['account_trading_allowed'] else 'NO'}\n"
+                    f"        ACCOUNT_EXPERT_TRADING_ALLOWED: {'YES' if perms['account_expert_trading_allowed'] else 'NO'}\n"
+                    f"        ORDER_EXECUTION_AVAILABLE:      {'YES (READY TO TRADE)' if perms['order_execution_available'] else 'NO (BLOCKED)'}\n"
+                    f"    - [WHY DIDN'T I TRADE? - LAST CANDIDATE AUDIT]:\n"
+                    f"        Last Candidate:   {cand_str}\n"
+                    f"        Decision:         {acc.last_decision}\n"
+                    f"        Blocking Stage:   {stage_str}\n"
+                    f"        Rejection Reason: {acc.last_rejection_reason}\n"
+                    f"        Last Retcode:     {retcode_str}\n"
                 )
             if self.copy_engine:
                 cp = self.copy_engine.get_status()

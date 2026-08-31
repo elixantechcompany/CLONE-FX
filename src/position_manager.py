@@ -355,6 +355,7 @@ class IntelligentExitEngine:
         current_tp = pos_dict.get("tp", 0.0)
         profit = pos_dict.get("profit", 0.0)
         magic = pos_dict.get("magic", 1001)
+        is_scalp = (magic == 1001)
 
         rec = self.records.get(ticket)
         if rec is None:
@@ -458,8 +459,8 @@ class IntelligentExitEngine:
         # =====================================================================
         # FAST BREAKEVEN & IMMEDIATE PROFIT STEP LOCK
         # Enforces:
-        #   - Immediate breakeven at +$0.50 profit on 1K / +$0.20 on $20 (+cushion).
-        #   - Immediate profit lock advancing every +$0.50 on 1K / +$0.20 on $20 added in profits.
+        #   - Immediate breakeven at +$0.30 profit on Scalper / +$0.20 on $20 (+cushion).
+        #   - Immediate profit lock advancing every step added in profits.
         # =====================================================================
         step_trig = 0.20 if is_personal else self.step_trigger_dollars
         step_sz = 0.20 if is_personal else self.step_size_dollars
@@ -523,7 +524,7 @@ class IntelligentExitEngine:
             if (p_type == "BUY" and lock_price > current_sl) or (p_type == "SELL" and (current_sl == 0 or lock_price < current_sl)):
                 return ExitDecision.TIGHTEN_PROTECTION, lock_price, f"PROFIT_LOCK_TIER1 (+{current_r:.2f}R -> Locking +{self.r_tier1_lock:.2f}R @ {lock_price:.2f})"
 
-        elif current_r >= self.r_be_trigger and not rec.be_applied:
+        elif (current_r >= self.r_be_trigger or (is_scalp and current_r >= 0.25)) and not rec.be_applied:
             rec.state = PositionState.STATE_2_PROFITABLE
             be_price = round(open_price + (risk_dist * self.r_be_lock), digits) if p_type == "BUY" else round(open_price - (risk_dist * self.r_be_lock), digits)
             if (p_type == "BUY" and be_price > current_sl) or (p_type == "SELL" and (current_sl == 0 or be_price < current_sl)):

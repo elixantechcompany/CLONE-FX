@@ -93,6 +93,34 @@ class AccountContext:
         # Algo Trading Status Cache
         self.is_algo_trading_allowed: bool = False
 
+        # Diagnostic State ("Why Didn't I Trade?" Dashboard)
+        self.last_evaluated_candidate: Optional[dict] = None
+        self.last_decision: str = "NO_SIGNAL"
+        self.last_blocking_stage: Optional[int] = None
+        self.last_rejection_reason: str = "Scanning for valid market setups"
+        self.last_order_retcode: Optional[int] = None
+        self.last_order_retcode_name: str = ""
+        self.last_order_result: str = "NONE"
+        self.last_order_time: float = 0.0
+
+    def record_candidate_audit(
+        self,
+        candidate: dict,
+        decision: str,
+        blocking_stage: Optional[int] = None,
+        rejection_reason: str = "",
+        retcode: Optional[int] = None,
+        retcode_name: str = "",
+    ):
+        """Updates diagnostic state for real-time transparency dashboard."""
+        self.last_evaluated_candidate = candidate
+        self.last_decision = decision
+        self.last_blocking_stage = blocking_stage
+        self.last_rejection_reason = rejection_reason or "Setup accepted"
+        if retcode is not None:
+            self.last_order_retcode = retcode
+            self.last_order_retcode_name = retcode_name
+
     @property
     def has_credentials(self) -> bool:
         return bool(

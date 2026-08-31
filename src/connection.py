@@ -183,6 +183,117 @@ class MT5Connector:
                 "server": None,
             }
 
+    def get_detailed_trading_permissions(self, symbol: Optional[str] = None) -> dict:
+        """
+        Comprehensive granular audit of all MT5 terminal, account, program, and market data permissions.
+        Distinguishes between connection, market data, terminal switch, program permission, and account EA permission.
+        """
+        try:
+            self.ensure_terminal_context()
+            term = mt5.terminal_info()
+            acc = mt5.account_info()
+
+            account_connected = bool(getattr(term, "connected", False)) if term else False
+            algo_trading_enabled = bool(getattr(term, "trade_allowed", False)) if term else False
+            program_trading_enabled = not bool(getattr(term, "tradeapi_disabled", False)) if term else False
+            account_trading_allowed = bool(getattr(acc, "trade_allowed", False)) if acc else False
+            account_expert_trading_allowed = bool(getattr(acc, "trade_expert", False)) if acc else False
+
+            # Verify identity
+            identity_match = (
+                acc is not None
+                and self.account is not None
+                and acc.login == self.account
+                and (not self.server or str(getattr(acc, "server", "")).strip().lower() == str(self.server).strip().lower())
+            )
+
+            market_data_connected = False
+            symbol_trade_allowed = True
+            symbol_reason = "OK"
+
+            if symbol:
+                info = mt5.symbol_info(symbol)
+                if info is not None:
+                    if not info.visible:
+                        mt5.symbol_select(symbol, True)
+                    tick = mt5.symbol_info_tick(symbol)
+                    if tick is not None and tick.bid > 0 and tick.ask > 0 and tick.ask >= tick.bid:
+                        market_data_connected = True
+                    else:
+                        market_data_connected = False
+                        symbol_reason = f"No valid bid/ask quotes for {symbol}"
+
+                    trade_mode = getattr(info, "trade_mode", mt5.SYMBOL_TRADE_MODE_FULL)
+                    if trade_mode == mt5.SYMBOL_TRADE_MODE_DISABLED:
+                        symbol_trade_allowed = False
+                        symbol_reason = f"Trading disabled on broker for {symbol} (trade_mode=DISABLED)"
+                else:
+                    symbol_trade_allowed = False
+                    symbol_reason = f"Symbol '{symbol}' not found on broker"
+            else:
+                market_data_connected = account_connected
+
+            blocking_reason = ""
+            if not account_connected:
+                blocking_reason = "ACCOUNT_DISCONNECTED: Terminal disconnected from MT5 trade server"
+            elif not identity_match:
+                blocking_reason = f"ACCOUNT_ID_MISMATCH: Active login #{getattr(acc, 'login', None)} does not match #{self.account}"
+            elif not algo_trading_enabled:
+                blocking_reason = "MT5_TERMINAL_AUTOTRADING_DISABLED: Algo Trading button is OFF in terminal"
+            elif not program_trading_enabled:
+                blocking_reason = "PROGRAM_LIVE_TRADING_DISABLED: TradeAPI is disabled on this terminal"
+            elif not account_trading_allowed:
+                blocking_reason = "ACCOUNT_TRADING_PERMISSION_DISABLED: Trade permission disabled on this account by broker"
+            elif not account_expert_trading_allowed:
+                blocking_reason = "ACCOUNT_EXPERT_TRADING_DISABLED: Automated trading disallowed for this account"
+            elif not market_data_connected:
+                blocking_reason = f"INVALID_MARKET_DATA: {symbol_reason}"
+            elif not symbol_trade_allowed:
+                blocking_reason = f"SYMBOL_TRADE_DISABLED: {symbol_reason}"
+
+            order_execution_available = (
+                account_connected
+                and identity_match
+                and algo_trading_enabled
+                and program_trading_enabled
+                and account_trading_allowed
+                and account_expert_trading_allowed
+                and market_data_connected
+                and symbol_trade_allowed
+            )
+
+            return {
+                "account_id": self.account_id,
+                "login": getattr(acc, "login", self.account),
+                "server": getattr(acc, "server", self.server),
+                "account_connected": account_connected,
+                "market_data_connected": market_data_connected,
+                "algo_trading_enabled": algo_trading_enabled,
+                "program_trading_enabled": program_trading_enabled,
+                "account_trading_allowed": account_trading_allowed,
+                "account_expert_trading_allowed": account_expert_trading_allowed,
+                "identity_match": identity_match,
+                "symbol_trade_allowed": symbol_trade_allowed,
+                "order_execution_available": order_execution_available,
+                "blocking_reason": blocking_reason,
+            }
+        except Exception as e:
+            return {
+                "account_id": self.account_id,
+                "login": self.account,
+                "server": self.server,
+                "account_connected": False,
+                "market_data_connected": False,
+                "algo_trading_enabled": False,
+                "program_trading_enabled": False,
+                "account_trading_allowed": False,
+                "account_expert_trading_allowed": False,
+                "identity_match": False,
+                "symbol_trade_allowed": False,
+                "order_execution_available": False,
+                "blocking_reason": f"PERMISSION_CHECK_ERROR: {e}",
+            }
+
     def verify_pre_trade_identity(
         self,
         symbol: Optional[str] = None,

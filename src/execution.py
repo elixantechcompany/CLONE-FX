@@ -21,6 +21,108 @@ from src.position_manager import IntelligentExitEngine, PositionState, ExitDecis
 
 logger = logging.getLogger("GoldBot.Execution")
 
+MT5_RETCODES: Dict[int, Tuple[str, str]] = {
+    10004: ("TRADE_RETCODE_REQUOTE", "Requote occurred - prices changed before order could be placed."),
+    10006: ("TRADE_RETCODE_REJECT", "Request rejected by trade server / broker."),
+    10007: ("TRADE_RETCODE_CANCEL", "Request canceled by trader / server."),
+    10008: ("TRADE_RETCODE_PLACED", "Order placed successfully in market."),
+    10009: ("TRADE_RETCODE_DONE", "Request executed successfully (Order Done)."),
+    10010: ("TRADE_RETCODE_DONE_PARTIALLY", "Request executed partially."),
+    10011: ("TRADE_RETCODE_ERROR", "Request processing error on broker server."),
+    10012: ("TRADE_RETCODE_TIMEOUT", "Request canceled by timeout."),
+    10013: ("TRADE_RETCODE_INVALID", "Invalid request parameter structure."),
+    10014: ("TRADE_RETCODE_INVALID_VOLUME", "Invalid order volume / lot size."),
+    10015: ("TRADE_RETCODE_INVALID_PRICE", "Invalid order price."),
+    10016: ("TRADE_RETCODE_INVALID_STOPS", "Invalid Stop Loss or Take Profit distance / stops level."),
+    10017: ("TRADE_RETCODE_TRADE_DISABLED", "Trading is disabled on broker trade server."),
+    10018: ("TRADE_RETCODE_MARKET_CLOSED", "Market is closed."),
+    10019: ("TRADE_RETCODE_NO_MONEY", "Not enough money / free margin to complete request."),
+    10020: ("TRADE_RETCODE_PRICE_CHANGED", "Prices changed during order execution."),
+    10021: ("TRADE_RETCODE_PRICE_OFF", "No quotes available to process request."),
+    10022: ("TRADE_RETCODE_INVALID_EXPIRATION", "Invalid order expiration date."),
+    10023: ("TRADE_RETCODE_ORDER_CHANGED", "Order state changed."),
+    10024: ("TRADE_RETCODE_TOO_MANY_REQUESTS", "Too frequent requests sent to trade server."),
+    10025: ("TRADE_RETCODE_NO_CHANGES", "No changes in request parameters."),
+    10026: ("TRADE_RETCODE_SERVER_DISABLES_AT", "Autotrading disabled by trade server."),
+    10027: ("TRADE_RETCODE_CLIENT_DISABLES_AT", "Autotrading disabled by client terminal setting."),
+    10028: ("TRADE_RETCODE_LOCKED", "Request locked for processing."),
+    10029: ("TRADE_RETCODE_FROZEN", "Order or position is frozen."),
+    10030: ("TRADE_RETCODE_INVALID_FILL", "Invalid order filling type specified for this symbol."),
+    10031: ("TRADE_RETCODE_CONNECTION", "No connection to the trade server."),
+    10032: ("TRADE_RETCODE_ONLY_REAL", "Operation allowed only for live accounts."),
+    10033: ("TRADE_RETCODE_LIMIT_ORDERS", "The number of pending orders has reached the broker limit."),
+    10034: ("TRADE_RETCODE_LIMIT_VOLUME", "Volume of orders and positions has reached the broker limit."),
+    10035: ("TRADE_RETCODE_POSITION_CLOSED", "Position is already closed."),
+    10036: ("TRADE_RETCODE_INVALID_CLOSE_VOLUME", "Close volume exceeds current position volume."),
+    10038: ("TRADE_RETCODE_CLOSE_ORDER_EXIST", "Close order already exists for this position."),
+}
+
+
+def get_retcode_description(retcode: Optional[int]) -> Tuple[str, str]:
+    """Translates MT5 integer retcode to name and descriptive explanation."""
+    if retcode is None:
+        return ("UNKNOWN", "No return code returned by MT5.")
+    if retcode == 0 or retcode == 10009:
+        return ("TRADE_RETCODE_DONE", "Order executed successfully.")
+    return MT5_RETCODES.get(retcode, (f"RETCODE_{retcode}", f"MT5 return code {retcode}."))
+
+
+class OrderPipelineAuditor:
+    """
+    Tracks and audits the 14 execution stages for every trade candidate.
+    Provides complete visibility into why an order executed or at which stage it stopped.
+    """
+    STAGE_NAMES = {
+        1: "MARKET DATA AVAILABLE",
+        2: "SETUP DETECTED",
+        3: "CONFIRMATION CHECK",
+        4: "QUALITY SCORE",
+        5: "RISK CHECK",
+        6: "ACCOUNT CHECK",
+        7: "SPREAD CHECK",
+        8: "NEWS CHECK",
+        9: "POSITION/CONCURRENCY CHECK",
+        10: "MT5 TRADING PERMISSION CHECK",
+        11: "ORDER REQUEST CREATED & ORDER_CHECK",
+        12: "ORDER SENT TO MT5",
+        13: "BROKER/MT5 RESPONSE RECEIVED",
+        14: "ORDER EXECUTED OR REJECTED",
+    }
+
+    @staticmethod
+    def format_audit_log(
+        account_id: str,
+        setup_id: str,
+        engine: str,
+        symbol: str,
+        direction: str,
+        quality_score: int,
+        stages: Dict[int, Tuple[bool, str]],
+        final_decision: str,
+        rejection_reason: str = "",
+    ) -> str:
+        """Formats the 14-stage audit summary into a clean diagnostic log block."""
+        lines = [
+            f"\n{'='*75}",
+            f" [14-STAGE ORDER EXECUTION AUDIT] [{account_id.upper()}] Setup: {setup_id}",
+            f" Engine: {engine} | Symbol: {symbol} | Direction: {direction} | Quality: {quality_score}/100",
+            f"{'-'*75}",
+        ]
+        for stage_num in range(1, 15):
+            s_name = OrderPipelineAuditor.STAGE_NAMES.get(stage_num, f"STAGE {stage_num}")
+            if stage_num in stages:
+                passed, detail = stages[stage_num]
+                status_icon = "[PASS]" if passed else "[FAIL]"
+                lines.append(f"  Stage {stage_num:02d} [{s_name:<34}]: {status_icon:<6} | {detail}")
+            else:
+                lines.append(f"  Stage {stage_num:02d} [{s_name:<34}]: [SKIP] | Not reached")
+        lines.append(f"{'-'*75}")
+        lines.append(f" FINAL DECISION: {final_decision}")
+        if rejection_reason:
+            lines.append(f" BLOCKING REASON: {rejection_reason}")
+        lines.append(f"{'='*75}")
+        return "\n".join(lines)
+
 
 class FinalEntryGate:
     """
@@ -248,9 +350,22 @@ class OrderExecutor:
             return None
 
         digits = info.digits
+        point = info.point
         tick = mt5.symbol_info_tick(symbol)
-        if tick is None:
-            logger.error(f"[{self.account_id.upper()}] Cannot get tick data for {symbol}.")
+        if tick is None or tick.bid <= 0 or tick.ask <= 0 or tick.ask < tick.bid:
+            logger.error(f"[{self.account_id.upper()}] Cannot execute order: Invalid tick data for {symbol}.")
+            return None
+
+        # Volume Bounds Validation & Normalization
+        vol_min = getattr(info, "volume_min", 0.01)
+        vol_max = getattr(info, "volume_max", 100.0)
+        vol_step = getattr(info, "volume_step", 0.01)
+
+        norm_volume = round(round(float(volume) / vol_step) * vol_step, 2)
+        if norm_volume < vol_min or norm_volume > vol_max:
+            logger.error(
+                f"[{self.account_id.upper()}] [VOLUME ERROR] Volume {norm_volume} outside allowed range [{vol_min}, {vol_max}] on {symbol}."
+            )
             return None
 
         price = tick.ask if order_type.upper() == "BUY" else tick.bid
@@ -258,17 +373,43 @@ class OrderExecutor:
         tp_rounded = round(tp, digits)
         mt5_order_type = mt5.ORDER_TYPE_BUY if order_type.upper() == "BUY" else mt5.ORDER_TYPE_SELL
 
-        filling_candidates = [self._get_supported_filling_mode(info), mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_RETURN, mt5.ORDER_FILLING_FOK]
-        result = None
-        t_order_sent = time.time()
+        # Stops Distance Validation
+        stops_level = getattr(info, "stops_level", 0) * point
+        if order_type.upper() == "BUY":
+            if sl_rounded >= price or tp_rounded <= price:
+                logger.error(f"[{self.account_id.upper()}] [INVALID STOPS] BUY order invalid stops: Entry={price}, SL={sl_rounded}, TP={tp_rounded}")
+                return None
+            if stops_level > 0 and ((price - sl_rounded) < stops_level or (tp_rounded - price) < stops_level):
+                logger.error(f"[{self.account_id.upper()}] [INVALID STOPS] Stops distance smaller than broker stops_level ({stops_level}) on {symbol}")
+                return None
+        else:
+            if sl_rounded <= price or tp_rounded >= price:
+                logger.error(f"[{self.account_id.upper()}] [INVALID STOPS] SELL order invalid stops: Entry={price}, SL={sl_rounded}, TP={tp_rounded}")
+                return None
+            if stops_level > 0 and ((sl_rounded - price) < stops_level or (price - tp_rounded) < stops_level):
+                logger.error(f"[{self.account_id.upper()}] [INVALID STOPS] Stops distance smaller than broker stops_level ({stops_level}) on {symbol}")
+                return None
 
+        # Margin Pre-Check
+        req_margin = mt5.order_calc_margin(mt5_order_type, symbol, norm_volume, price)
+        acc_info = mt5.account_info()
+        free_margin = getattr(acc_info, "margin_free", 0.0) if acc_info else 0.0
+        if req_margin is not None and req_margin > free_margin:
+            logger.error(
+                f"[{self.account_id.upper()}] [INSUFFICIENT MARGIN] Required margin ${req_margin:.2f} exceeds free margin ${free_margin:.2f} on {symbol}."
+            )
+            return None
+
+        # Pre-Flight MT5 OrderCheck
+        filling_candidates = self.get_candidate_filling_modes(info)
         clean_comment = f"{comment[:15]}_{self.account_id}"[:31]
 
+        valid_request = None
         for f_mode in filling_candidates:
-            request = {
+            test_req = {
                 "action": mt5.TRADE_ACTION_DEAL,
                 "symbol": symbol,
-                "volume": float(volume),
+                "volume": float(norm_volume),
                 "type": mt5_order_type,
                 "price": price,
                 "sl": sl_rounded,
@@ -279,33 +420,64 @@ class OrderExecutor:
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": f_mode,
             }
-
-            logger.info(
-                f"[{self.account_id.upper()}] Sending {order_type.upper()} {volume} lots on {symbol} @ {price:.2f} | "
-                f"SL: {sl_rounded:.2f} | TP: {tp_rounded:.2f} | Magic: {used_magic}"
-            )
-
-            result = mt5.order_send(request)
-            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                break
-            elif result and result.retcode in (10030, 10019, 10006):
-                continue
+            chk_res = mt5.order_check(test_req)
+            if chk_res is not None:
+                if chk_res.retcode == 0 or chk_res.retcode == mt5.TRADE_RETCODE_DONE:
+                    valid_request = test_req
+                    break
+                else:
+                    ret_name, ret_desc = get_retcode_description(chk_res.retcode)
+                    logger.warning(
+                        f"[{self.account_id.upper()}] [ORDER_CHECK REJECTED] Filling {f_mode}: [{chk_res.retcode} {ret_name}] {chk_res.comment} - {ret_desc}"
+                    )
             else:
+                valid_request = test_req
                 break
 
-        t_order_done = time.time()
-
-        if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
-            retcode = result.retcode if result else None
-            err = result.comment if result else str(mt5.last_error())
-            if retcode in (10026, 10027):
-                logger.warning(
-                    f"[{self.account_id.upper()}] Order rejected by MT5 (Retcode {retcode}: AutoTrading/Trading disabled). "
-                    f"Please verify MT5 Algo Trading setting."
-                )
-            else:
-                logger.error(f"[{self.account_id.upper()}] Order execution failed with retcode [{retcode}]: {err}")
+        if not valid_request:
+            logger.error(f"[{self.account_id.upper()}] [ORDER EXECUTION BLOCKED] Pre-flight order_check failed on all filling modes.")
             return None
+
+        # Send Order to MT5
+        logger.info(
+            f"[{self.account_id.upper()}] [SENDING ORDER] {order_type.upper()} {norm_volume} lots on {symbol} @ {price:.2f} | "
+            f"SL: {sl_rounded:.2f} | TP: {tp_rounded:.2f} | Magic: {used_magic} | Comment: {clean_comment}"
+        )
+
+        result = mt5.order_send(valid_request)
+
+        if result is None:
+            err_code, err_desc = mt5.last_error()
+            ret_name, ret_desc = get_retcode_description(err_code)
+            logger.error(
+                f"[{self.account_id.upper()}] [ORDER REJECTED BY MT5] mt5.order_send returned None. "
+                f"Error: [{err_code} {ret_name}] {err_desc} - {ret_desc}"
+            )
+            return None
+
+        ret_name, ret_desc = get_retcode_description(result.retcode)
+
+        if result.retcode != mt5.TRADE_RETCODE_DONE and result.retcode != mt5.TRADE_RETCODE_PLACED:
+            logger.error(
+                f"\n{'='*75}\n"
+                f" [ORDER REJECTED BY BROKER/MT5] [{self.account_id.upper()}]\n"
+                f" Symbol: {symbol} | Type: {order_type.upper()} | Volume: {norm_volume}\n"
+                f" Retcode: {result.retcode} ({ret_name})\n"
+                f" Broker Comment: {result.comment}\n"
+                f" Explanation: {ret_desc}\n"
+                f"{'='*75}"
+            )
+            return None
+
+        logger.info(
+            f"\n{'='*75}\n"
+            f" [ORDER EXECUTED SUCCESSFULLY] [{self.account_id.upper()}]\n"
+            f" Order Ticket: #{result.order} | Deal Ticket: #{result.deal}\n"
+            f" Symbol: {symbol} | Type: {order_type.upper()} | Volume: {result.volume or norm_volume} lots\n"
+            f" Fill Price: {result.price:.2f} | SL: {sl_rounded:.2f} | TP: {tp_rounded:.2f}\n"
+            f" Broker Comment: {result.comment} | Retcode: {result.retcode} ({ret_name})\n"
+            f"{'='*75}"
+        )
 
         ticket = result.order
         fill_price = result.price if result.price > 0 else price
@@ -424,6 +596,7 @@ class OrderExecutor:
     def update_sl_tp(self, ticket: int, symbol: str, new_sl: float, new_tp: float) -> bool:
         """Modifies Stop Loss and Take Profit for active position."""
         if self.connector:
+            self.connector.ensure_terminal_context()
             valid, msg = self.connector.verify_pre_trade_identity(symbol=symbol, require_algo_on=False)
             if not valid:
                 logger.error(f"[{self.account_id.upper()}] [SL/TP MODIFICATION BLOCKED] {msg}")
@@ -453,7 +626,7 @@ class OrderExecutor:
                 logger.warning(f"[{self.account_id.upper()}] Failed to update SL/TP on #{ticket} [{retcode}]: {err}")
             return False
 
-        logger.info(f"[{self.account_id.upper()}] Updated Ticket #{ticket} ({symbol}) -> New SL: {sl_val:.2f}, New TP: {tp_val:.2f}")
+        logger.info(f"[{self.account_id.upper()}] [BREAKEVEN / SL UPDATED] Successfully modified Ticket #{ticket} ({symbol}) -> New SL: {sl_val:.2f}, New TP: {tp_val:.2f}")
 
         # Emit SL/TP modification event
         self._emit_event("SL_MODIFY", {
@@ -728,16 +901,42 @@ class OrderExecutor:
                 )
 
                 if decision == ExitDecision.CLOSE_MARKET:
+                    logger.info(f"[{self.account_id.upper()}] [EXIT DECISION: CLOSE] Ticket #{ticket} ({symbol}): {reason}")
                     self.close_position(ticket, symbol, reason=reason)
                 elif decision in (ExitDecision.LOCK_BREAKEVEN, ExitDecision.TIGHTEN_PROTECTION, ExitDecision.TRAIL_ATR):
                     if target_new_sl is not None:
+                        logger.info(f"[{self.account_id.upper()}] [EXIT DECISION: {decision.value}] Ticket #{ticket} ({symbol}) Current SL: {current_sl:.2f} -> Target SL: {target_new_sl:.2f} | Reason: {reason}")
                         self.update_sl_tp(ticket, symbol, target_new_sl, current_tp)
+
+    @classmethod
+    def get_candidate_filling_modes(cls, symbol_info) -> List[int]:
+        """Returns ordered list of supported filling modes for this broker symbol."""
+        if symbol_info is None:
+            return [mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_RETURN, mt5.ORDER_FILLING_FOK]
+        fillings = getattr(symbol_info, "filling_mode", 0)
+        modes = []
+        if fillings & 2:
+            modes.append(mt5.ORDER_FILLING_IOC)
+        if fillings & 1:
+            modes.append(mt5.ORDER_FILLING_FOK)
+        modes.append(mt5.ORDER_FILLING_RETURN)
+        modes.append(mt5.ORDER_FILLING_IOC)
+        modes.append(mt5.ORDER_FILLING_FOK)
+        seen = set()
+        unique_modes = []
+        for m in modes:
+            if m not in seen:
+                seen.add(m)
+                unique_modes.append(m)
+        return unique_modes
 
     @staticmethod
     def _get_supported_filling_mode(symbol_info) -> int:
-        fillings = symbol_info.filling_mode if symbol_info else 0
+        if symbol_info is None:
+            return mt5.ORDER_FILLING_IOC
+        fillings = getattr(symbol_info, "filling_mode", 0)
         if fillings & 2:
             return mt5.ORDER_FILLING_IOC
         if fillings & 1:
-            return mt5.ORDER_FILLING_IOC
+            return mt5.ORDER_FILLING_FOK
         return mt5.ORDER_FILLING_RETURN

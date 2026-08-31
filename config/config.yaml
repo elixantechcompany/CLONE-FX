@@ -48,11 +48,11 @@ funded_account:
 # ==============================================================================
 personal_account:
   initial_account_size_dollars: 20.0
-  max_single_trade_risk_dollars: 0.60        # Normal maximum risk per trade ($0.60 = 2.0%)
-  preferred_risk_min_dollars: 0.30           # Floor ($0.30)
-  preferred_risk_max_dollars: 0.60           # Ceiling ($0.60)
-  single_trade_hard_reject_dollars: 0.90     # Strict rejection if 0.01 lot loss exceeds $0.90
-  daily_drawdown_limit_dollars: 2.50         # Daily hard stop at -$2.50 (Never blows $20 account)
+  max_single_trade_risk_dollars: 2.50        # Normal maximum risk per trade for min 0.01 lot Gold
+  preferred_risk_min_dollars: 1.50           # Floor ($1.50)
+  preferred_risk_max_dollars: 2.50           # Ceiling ($2.50)
+  single_trade_hard_reject_dollars: 3.50     # Rejection if 0.01 lot loss exceeds $3.50 (keeps SL tight)
+  daily_drawdown_limit_dollars: 6.00         # Daily hard stop at -$6.00 (Never blows $20 account)
   daily_profit_objective_dollars: 30.0       # Aiming high for +$30.00+ on personal account
 
 # ==============================================================================
@@ -98,7 +98,7 @@ accounts:
     - id: "account_c"
       name: "Personal Account C ($20 Master)"
       type: "PERSONAL"
-      balance: 30.0
+      balance: 20.0
       mode: "COPY_MASTER"
       copy_enabled: true
       env_login_var: "ACCOUNT_C_LOGIN"
@@ -114,7 +114,7 @@ accounts:
     - id: "account_d"
       name: "Personal Account D ($20 FBS)"
       type: "PERSONAL"
-      balance: 30.0
+      balance: 1000.0
       mode: "INDEPENDENT"
       copy_enabled: false
       env_login_var: "ACCOUNT_D_LOGIN"
