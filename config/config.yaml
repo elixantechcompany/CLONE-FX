@@ -144,6 +144,16 @@ copy_engine:
   auto_reopen_on_master_open: false    # Strictly FALSE: Never reopen if follower closed on own risk
 
 # ==============================================================================
+# 4B. CIRCUIT BREAKERS & PROFIT GIVEBACK PROTECTION
+# ==============================================================================
+circuit_breakers:
+  enabled: true
+  high_water_giveback_protection:
+    enabled: true
+    min_profit_to_arm_dollars: 10.0     # Arm giveback protection as soon as daily profit reaches +$10.00 (or $2.00 on $20)
+    max_giveback_pct_of_peak: 30.0      # Protect at least 70% of peak gains (Halt day to bank profits)
+
+# ==============================================================================
 # 5. TRADING SYMBOLS CONFIGURATION (XAUUSD and BTCUSD)
 # ==============================================================================
 symbols:
@@ -214,7 +224,7 @@ m1_scalper:
   trend_slope_bars: 3
   magic_number: 1001                  # Unique Magic Number for M1_Scalp
   timeframes: ["M1", "M5", "M15"]     # Active multi-timeframe micro-scalping
-  min_quality_score: 70               # Agile Quality Score Threshold
+  min_quality_score: 80               # Grade-A Quality Score Threshold (Strictly >= 80)
   max_concurrent_scalp: 1             # Max 1 active scalper position per account
   fast_ema: 7
   slow_ema: 16
@@ -234,16 +244,16 @@ profit_management:
   breakeven_buffer_dollars: 0.05      # Spread/commission positive buffer (+0.05)
   
   # Agile R-Multiple Dynamic Profit-Lock Stages (1R = Initial Monetary Risk)
-  breakeven_trigger_r: 0.50           # At +0.50R -> Begin protection (breakeven buffer)
-  breakeven_lock_r: 0.10              # Guaranteed green buffer (+0.10R)
-  tier1_protect_trigger_r: 1.00       # At +1.00R -> Protect meaningful profit (+0.50R)
-  tier1_protect_lock_r: 0.50
-  tier2_protect_trigger_r: 1.50       # At +1.50R -> Allow strong winners to run (+1.00R locked)
-  tier2_protect_lock_r: 1.00
-  tier3_protect_trigger_r: 2.00       # At +2.00R -> Volatility-Aware Intelligent Trailing
-  tier3_protect_lock_r: 1.50
-  tier4_protect_trigger_r: 3.00       # At +3.00R+ -> Structure-based runner trailing
-  tier4_protect_lock_r: 2.30
+  breakeven_trigger_r: 0.35           # At +0.35R -> Move SL to Breakeven (+0.05R buffer)
+  breakeven_lock_r: 0.05              # Guaranteed green buffer (+0.05R)
+  tier1_protect_trigger_r: 0.80       # At +0.80R -> Lock in +0.40R profit
+  tier1_protect_lock_r: 0.40
+  tier2_protect_trigger_r: 1.20       # At +1.20R -> Lock in +0.80R profit
+  tier2_protect_lock_r: 0.80
+  tier3_protect_trigger_r: 1.60       # At +1.60R -> Lock in +1.20R profit
+  tier3_protect_lock_r: 1.20
+  tier4_protect_trigger_r: 2.20       # At +2.20R+ -> Structure-based runner trailing (+1.70R locked)
+  tier4_protect_lock_r: 1.70
   
   # Multi-Signal Confirmed Reversal & Maturation Thresholds
   reversal_exit_threshold: 80         # Strict multi-signal agreement required (Score >= 80)
@@ -252,9 +262,9 @@ profit_management:
   min_seconds_before_reversal: 120    # Minimum 120s duration before early reversal exit
   continuation_strong_threshold: 60   # Continuation Score >= 60 -> Let runners breathe
   
-  # Dynamic Volatility-Aware Giveback & Peak R Decay (Only for Realized >= +1.0R Moves)
-  giveback_min_peak_r: 1.00           # Giveback protection activates only once trade touches >= +1.00R peak
-  giveback_max_r_decay: 0.40          # Bank profit if trade rolls back >0.40R from peak (locks >= +0.60R)
+  # Dynamic Volatility-Aware Giveback & Peak R Decay
+  giveback_min_peak_r: 0.70           # Giveback protection activates once trade touches >= +0.70R peak
+  giveback_max_r_decay: 0.30          # Bank profit if trade rolls back >0.30R from peak (locks >= +0.40R)
   
   # Stale Trade Failure Timeout (Bars Held without progress)
   scalp_timeout_bars: 15              # Close stagnating M1 micro-scalps after 15 bars
@@ -262,7 +272,7 @@ profit_management:
   
   # Dynamic Continuous Trailing Stop
   trailing_enabled: true
-  trailing_trigger_r: 1.50            # Continuous ATR trailing begins at +1.50R
+  trailing_trigger_r: 1.40            # Continuous ATR trailing begins at +1.40R
   trailing_distance_r: 0.60           # 0.60R trailing distance buffer
 
 # ==============================================================================
