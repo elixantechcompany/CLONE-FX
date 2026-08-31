@@ -94,8 +94,8 @@ class MT5Connector:
         acc = mt5.account_info()
         terminal_info = mt5.terminal_info()
 
-        if terminal_info is None or acc is None:
-            # Only try explicit login if not already logged in
+        if terminal_info is None or acc is None or (self.account and acc.login != self.account):
+            # Only try explicit login if not already logged into the required account
             if self.account and self.password and self.server:
                 logger.info(f"[{self.account_id.upper()}] Attempting login for #{self.account} on {self.server}...")
                 mt5.login(login=self.account, password=str(self.password), server=str(self.server))

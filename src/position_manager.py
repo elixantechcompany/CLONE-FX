@@ -456,22 +456,26 @@ class IntelligentExitEngine:
             return ExitDecision.CLOSE_MARKET, None, rec.exit_reason
 
         # =====================================================================
-        # FAST BREAKEVEN & IMMEDIATE 50-CENT PROFIT STEP LOCK
+        # FAST BREAKEVEN & IMMEDIATE PROFIT STEP LOCK
         # Enforces:
-        #   - Immediate breakeven at +$0.50 profit (+0.05 cushion).
-        #   - Immediate profit lock advancing every +$0.50 added in profits.
+        #   - Immediate breakeven at +$0.50 profit on 1K / +$0.20 on $20 (+cushion).
+        #   - Immediate profit lock advancing every +$0.50 on 1K / +$0.20 on $20 added in profits.
         # =====================================================================
-        if self.dollar_step_lock_enabled and profit >= self.step_trigger_dollars:
+        step_trig = 0.20 if is_personal else self.step_trigger_dollars
+        step_sz = 0.20 if is_personal else self.step_size_dollars
+        be_buf = 0.02 if is_personal else self.breakeven_buffer_dollars
+
+        if self.dollar_step_lock_enabled and profit >= step_trig:
             dollar_multiplier = (vol * 100.0) if ("BTC" not in symbol.upper()) else vol
             if dollar_multiplier > 0:
-                step_num = int(profit / self.step_size_dollars)
+                step_num = int(profit / step_sz)
                 if step_num >= 1:
                     if step_num == 1:
-                        locked_dollars = self.breakeven_buffer_dollars
-                        step_desc = f"FAST_BREAKEVEN_LOCK (+${profit:.2f} >= $0.50 -> Moving SL to Breakeven [+${locked_dollars:.2f} cushion])"
+                        locked_dollars = be_buf
+                        step_desc = f"FAST_BREAKEVEN_LOCK (+${profit:.2f} >= ${step_trig:.2f} -> Moving SL to Breakeven [+${locked_dollars:.2f} cushion])"
                         decision_type = ExitDecision.LOCK_BREAKEVEN
                     else:
-                        locked_dollars = (step_num - 1) * self.step_size_dollars
+                        locked_dollars = (step_num - 1) * step_sz
                         step_desc = f"PROFIT_STEP_LOCK (+${profit:.2f} -> Step {step_num} Locking +${locked_dollars:.2f} Profit)"
                         decision_type = ExitDecision.TIGHTEN_PROTECTION
 
