@@ -462,9 +462,9 @@ class IntelligentExitEngine:
         #   - Immediate breakeven at +$0.30 profit on Scalper / +$0.20 on $20 (+cushion).
         #   - Immediate profit lock advancing every step added in profits.
         # =====================================================================
-        step_trig = 0.20 if is_personal else self.step_trigger_dollars
-        step_sz = 0.20 if is_personal else self.step_size_dollars
-        be_buf = 0.02 if is_personal else self.breakeven_buffer_dollars
+        step_trig = self.step_trigger_dollars
+        step_sz = self.step_size_dollars
+        be_buf = self.breakeven_buffer_dollars
 
         if self.dollar_step_lock_enabled and profit >= step_trig:
             dollar_multiplier = (vol * 100.0) if ("BTC" not in symbol.upper()) else vol

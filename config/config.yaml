@@ -238,10 +238,10 @@ m1_scalper:
 # ==============================================================================
 profit_management:
   enabled: true
-  dollar_step_lock_enabled: true      # Fast Breakeven & 50-Cent Immediate Profit Step Lock
-  step_trigger_dollars: 0.50          # Immediate breakeven trigger at +$0.50 profit
-  step_size_dollars: 0.50             # Step lock advancing every +$0.50 added in profit
-  breakeven_buffer_dollars: 0.05      # Spread/commission positive buffer (+0.05)
+  dollar_step_lock_enabled: true      # $1.00 Step-Trailing Stop Loss
+  step_trigger_dollars: 1.00          # Initial breakeven + protection lock at +$1.00 profit
+  step_size_dollars: 1.00             # Advances SL every +$1.00 added in profit (+1, +2, +3, +4...)
+  breakeven_buffer_dollars: 0.10      # Spread/commission positive buffer (+0.10)
   
   # Agile R-Multiple Dynamic Profit-Lock Stages (1R = Initial Monetary Risk)
   breakeven_trigger_r: 0.35           # At +0.35R -> Move SL to Breakeven (+0.05R buffer)

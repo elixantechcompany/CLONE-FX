@@ -153,7 +153,86 @@ class TestFastBreakevenStepLock(unittest.TestCase):
         }
         decision, target_sl, reason = self.exit_engine.evaluate_position_lifecycle(pos, digits=2)
         self.assertEqual(decision, ExitDecision.TIGHTEN_PROTECTION)
-        self.assertEqual(target_sl, 2649.00) # 2650.00 - $1.00 profit
+    def test_one_dollar_step_trailing_progression(self):
+        """Validates exact $1.00 step trailing requested by user."""
+        cfg = {
+            "profit_management": {
+                "enabled": True,
+                "dollar_step_lock_enabled": True,
+                "step_trigger_dollars": 1.00,
+                "step_size_dollars": 1.00,
+                "breakeven_buffer_dollars": 0.10,
+                "breakeven_trigger_r": 0.50,
+                "breakeven_lock_r": 0.10,
+                "tier1_protect_trigger_r": 1.00,
+                "tier1_protect_lock_r": 0.50,
+                "tier2_protect_trigger_r": 1.50,
+                "tier2_protect_lock_r": 1.00,
+                "tier3_protect_trigger_r": 2.00,
+                "tier3_protect_lock_r": 1.50,
+                "tier4_protect_trigger_r": 3.00,
+                "tier4_protect_lock_r": 2.30,
+                "reversal_exit_threshold": 80,
+                "min_bars_before_reversal": 3,
+                "min_seconds_before_reversal": 120,
+                "giveback_min_peak_r": 1.00,
+                "giveback_max_r_decay": 0.40,
+                "scalp_timeout_bars": 15,
+                "musumali_timeout_bars": 25,
+            }
+        }
+        engine = IntelligentExitEngine(cfg)
+
+        # Stage 1: +$1.00 -> Breakeven + $0.10 cushion
+        pos1 = {
+            "ticket": 301,
+            "symbol": "XAUUSDm",
+            "type": "BUY",
+            "volume": 0.01,
+            "price_open": 2650.00,
+            "price_current": 2651.00,
+            "sl": 2646.00,
+            "tp": 2660.00,
+            "profit": 1.00,
+            "magic": 1001,
+        }
+        dec1, sl1, r1 = engine.evaluate_position_lifecycle(pos1, digits=2)
+        self.assertEqual(dec1, ExitDecision.LOCK_BREAKEVEN)
+        self.assertEqual(sl1, 2650.10) # 2650.00 + $0.10 cushion
+
+        # Stage 2: +$2.00 -> Lock +$1.00 profit
+        pos2 = {
+            "ticket": 301,
+            "symbol": "XAUUSDm",
+            "type": "BUY",
+            "volume": 0.01,
+            "price_open": 2650.00,
+            "price_current": 2652.00,
+            "sl": 2650.10,
+            "tp": 2660.00,
+            "profit": 2.00,
+            "magic": 1001,
+        }
+        dec2, sl2, r2 = engine.evaluate_position_lifecycle(pos2, digits=2)
+        self.assertEqual(dec2, ExitDecision.TIGHTEN_PROTECTION)
+        self.assertEqual(sl2, 2651.00) # 2650.00 + $1.00 profit
+
+        # Stage 3: +$3.00 -> Lock +$2.00 profit
+        pos3 = {
+            "ticket": 301,
+            "symbol": "XAUUSDm",
+            "type": "BUY",
+            "volume": 0.01,
+            "price_open": 2650.00,
+            "price_current": 2653.00,
+            "sl": 2651.00,
+            "tp": 2660.00,
+            "profit": 3.00,
+            "magic": 1001,
+        }
+        dec3, sl3, r3 = engine.evaluate_position_lifecycle(pos3, digits=2)
+        self.assertEqual(dec3, ExitDecision.TIGHTEN_PROTECTION)
+        self.assertEqual(sl3, 2652.00) # 2650.00 + $2.00 profit
 
 
 if __name__ == "__main__":
