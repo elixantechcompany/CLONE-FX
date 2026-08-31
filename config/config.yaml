@@ -32,11 +32,11 @@ funded_account:
   internal_trailing_reduced_risk_dollars: 40.0 # Drawdown $40 from HWM: Cut risk to 0.4x
   internal_trailing_hard_stop_dollars: 50.0  # Drawdown $50 from HWM: Hard stop (Leaves $10 buffer below $60)
 
-  # Individual Trade Risk Bounds ($2.50 to $5.00 max)
-  max_single_trade_risk_dollars: 5.00        # Normal maximum risk per trade (~$5.00)
-  preferred_risk_min_dollars: 2.50           # Preferred risk floor ($2.50)
-  preferred_risk_max_dollars: 5.00           # Preferred risk ceiling ($5.00)
-  single_trade_hard_reject_dollars: 5.50     # Strict rejection ceiling
+  # Individual Trade Risk Bounds ($1.50 to $3.00 max)
+  max_single_trade_risk_dollars: 3.00        # Normal maximum risk per trade (~$3.00)
+  preferred_risk_min_dollars: 1.50           # Preferred risk floor ($1.50)
+  preferred_risk_max_dollars: 3.00           # Preferred risk ceiling ($3.00)
+  single_trade_hard_reject_dollars: 3.50     # Strict rejection ceiling (~$3.50 max potential loss)
 
   # Profit Management & Daily Objectives (Aiming for $30 -> $50 -> $100+ Daily Profits)
   daily_profit_objective_min: 30.0           # +$30.00: Baseline milestone
@@ -157,7 +157,7 @@ circuit_breakers:
 # 5. TRADING SYMBOLS CONFIGURATION (XAUUSD and BTCUSD)
 # ==============================================================================
 symbols:
-  active_symbols: ["XAUUSD"]
+  active_symbols: ["XAUUSD", "BTCUSD"]
   symbol_settings:
     XAUUSD:
       candidates: ["XAU/USD", "XAUUSDm", "XAUUSD", "XAUUSD_i", "XAUUSDz", "GOLD"]
@@ -171,7 +171,7 @@ symbols:
       scalp_min_sl_dollars: 0.40
       scalp_max_sl_dollars: 2.80
     BTCUSD:
-      candidates: ["BTC/USD", "BTCUSDm", "BTCUSD", "BTCUSD_i", "BTCUSDz", "BITCOIN", "BTC"]
+      candidates: ["BTC/USD", "#BTCUSD", "BTCUSD", "BTCUSDm", "BTCUSD_i", "BTCUSDz", "BITCOIN", "BTC"]
       asset_type: "CRYPTO_BITCOIN"
       max_spread_points: 2500         # Crypto spread tolerance in points
       atr_period: 14
