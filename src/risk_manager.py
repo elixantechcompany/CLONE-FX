@@ -103,8 +103,8 @@ class RiskManager:
         # High-Water Mark Giveback Protection
         hwm_cfg = self.circuit_config.get("high_water_giveback_protection", {})
         self.hwm_protection_enabled = hwm_cfg.get("enabled", True)
-        self.hwm_arm_profit = float(hwm_cfg.get("min_profit_to_arm_dollars", 25.0 if self.account_type == "BRIGHTFUNDED" else 1.50))
-        self.hwm_max_giveback_pct = float(hwm_cfg.get("max_giveback_pct_of_peak", 35.0))
+        self.hwm_arm_profit = float(hwm_cfg.get("min_profit_to_arm_dollars", 8.0 if self.account_type == "BRIGHTFUNDED" else 1.50))
+        self.hwm_max_giveback_pct = float(hwm_cfg.get("max_giveback_pct_of_peak", 25.0))
 
         # Daily baseline and state
         self.current_day: Optional[datetime.date] = None
@@ -515,12 +515,12 @@ class RiskManager:
             if daily_peak_profit >= self.hwm_arm_profit:
                 profit_giveback = self.daily_high_water_equity - current_equity
                 giveback_pct = (profit_giveback / daily_peak_profit) * 100.0 if daily_peak_profit > 0 else 0.0
-                if giveback_pct >= self.hwm_max_giveback_pct:
+                if giveback_pct >= self.hwm_max_giveback_pct or (daily_peak_profit >= 12.0 and profit_giveback >= 3.50):
                     self.circuit_tripped = True
                     self.trading_state = "PROFIT_PROTECTION_HALT"
                     self.trip_reason = (
                         f"Giveback Protection Triggered! Peak +${daily_peak_profit:.2f}, giveback ${profit_giveback:.2f} ({giveback_pct:.1f}%). "
-                        f"Trading paused for today to bank daily profits."
+                        f"Trading paused for today to bank ${current_equity - self.daily_start_equity:+.2f} daily profits."
                     )
                     logger.warning(f"[{self.account_id.upper()}] {self.trip_reason}")
                     return False, self.trip_reason
