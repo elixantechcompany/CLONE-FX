@@ -341,6 +341,12 @@ class GoldTradingBot:
 
                 # Handle Reconnection / Recovery if disconnected
                 if cur_state in (ConnectionState.CONNECTION_LOST, ConnectionState.RECONNECTING):
+                    # Throttle reconnect attempts to once every 120s so active accounts run at maximum speed
+                    last_retry = getattr(acc, "_last_reconnect_attempt", 0.0)
+                    if (now - last_retry) < 120.0:
+                        continue
+                    acc._last_reconnect_attempt = now
+
                     # Attempt reconnect
                     acc.state_machine.transition_to(
                         ConnectionState.RECONNECTING,
@@ -351,7 +357,6 @@ class GoldTradingBot:
                         self.logger.info(f"[{acc.account_id.upper()}] [CONNECTION RESTORED] Restoring state...")
                         acc.reconcile_account_state(self.active_broker_symbols)
                     else:
-                        # Continue with other accounts without blocking
                         continue
 
                 # Synchronize balance, equity, margin
@@ -427,6 +432,13 @@ class GoldTradingBot:
                             timeframe="M1",
                             spread=cur_spread,
                         ))
+
+                # Periodic live scan visibility logging (every 10s)
+                if (now - getattr(self, "_last_scan_log_time", 0.0)) >= 10.0:
+                    self._last_scan_log_time = now
+                    mus_status = f"{sig_m} (Score: {score_m})" if sig_m else f"Scanning ({reason_m})"
+                    scalp_status = f"{sig_s} (Score: {score_s}/100)" if sig_s else f"Evaluating ({reason_s})"
+                    self.logger.info(f"[LIVE SCANNER] {broker_sym} | Musumali: {mus_status} | Scalper: {scalp_status} | Spread: {cur_spread} pts")
             except Exception as e:
                 self.logger.warning(f"Market scanner cycle warning for {broker_sym}: {e}")
 

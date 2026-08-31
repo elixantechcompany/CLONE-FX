@@ -114,6 +114,11 @@ class TestAlgoSwitchAndAutoRecovery(unittest.TestCase):
             self.config = yaml.safe_load(f)
 
         self.account_manager = MultiAccountManager(self.config)
+        for acc in self.account_manager.accounts.values():
+            acc.is_active = True
+            acc.login = 12345
+            acc.password = "mock_pass"
+            acc.server = "mock_server"
 
     def test_01_state_machine_transitions(self):
         """Test 7 explicit lifecycle states and transition callback."""

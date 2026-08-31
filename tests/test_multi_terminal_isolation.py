@@ -165,6 +165,14 @@ class TestMultiTerminalIsolation(unittest.TestCase):
         acc_mgr = MultiAccountManager(self.config)
         acc_a = acc_mgr.get_account("account_a")
         acc_b = acc_mgr.get_account("account_b")
+        acc_a.is_active = True
+        acc_a.login = 313812184
+        acc_a.password = "pass"
+        acc_a.server = "BrightFunded-Server"
+        acc_b.is_active = True
+        acc_b.login = 314138473
+        acc_b.password = "pass"
+        acc_b.server = "BrightFunded-Server"
 
         acc_a.connector = conn_a
         acc_b.connector = conn_b

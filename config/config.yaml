@@ -110,14 +110,13 @@ accounts:
       fallback_server_var: "ACCOUNT_3_SERVER"
       is_active: true
 
-    # ACCOUNT D: $20 Personal Account - Copy Follower (Copies ONLY Account C after 8-step safety check)
+    # ACCOUNT D: $20 Personal Account (FBS Markets) -> Independent Micro Trading
     - id: "account_d"
-      name: "Personal Account D ($20 Follower)"
+      name: "Personal Account D ($20 FBS)"
       type: "PERSONAL"
       balance: 30.0
-      mode: "COPY_FOLLOWER"
-      copy_source: "account_c"
-      copy_enabled: true
+      mode: "INDEPENDENT"
+      copy_enabled: false
       env_login_var: "ACCOUNT_D_LOGIN"
       env_password_var: "ACCOUNT_D_PASSWORD"
       env_server_var: "ACCOUNT_D_SERVER"
@@ -125,7 +124,7 @@ accounts:
       fallback_login_var: "ACCOUNT_4_LOGIN"
       fallback_password_var: "ACCOUNT_4_PASSWORD"
       fallback_server_var: "ACCOUNT_4_SERVER"
-      is_active: false
+      is_active: true
 
 # ==============================================================================
 # 4. ISOLATED COPY TRADING ENGINE (Strictly Account C -> Account D)
