@@ -74,15 +74,12 @@ class MT5Connector:
         Guarantees that Account A communicates with Account A's session, and Account C with Account C's session.
         """
         try:
-            if self.path and os.path.exists(self.path):
-                mt5.initialize(path=self.path)
-            else:
-                mt5.initialize()
-                
             acc = mt5.account_info()
             if acc is None or (self.account and acc.login != self.account):
-                if self.account and self.password and self.server:
-                    mt5.login(login=self.account, password=str(self.password), server=str(self.server))
+                if self.path and os.path.exists(self.path):
+                    mt5.initialize(path=self.path, login=self.account, password=str(self.password), server=str(self.server), timeout=5000)
+                elif self.account and self.password and self.server:
+                    mt5.login(login=self.account, password=str(self.password), server=str(self.server), timeout=5000)
             return True
         except Exception as e:
             logger.warning(f"[{self.account_id.upper()}] Error ensuring terminal context: {e}")
@@ -90,26 +87,31 @@ class MT5Connector:
 
     def initialize(self) -> bool:
         """Initializes the MT5 terminal connection for this account's dedicated terminal instance."""
-        logger.info(f"Initializing MetaTrader 5 terminal connection for [{self.account_id.upper()}]...")
+        if not self.account or not self.password or not self.server:
+            logger.info(f"[{self.account_id.upper()}] Inactive credentials. Skipping.")
+            return False
 
-        self.ensure_terminal_context()
+        logger.info(f"Initializing MetaTrader 5 terminal connection for [{self.account_id.upper()}] (Path: {self.path or 'Default'})...")
+
+        if self.path and os.path.exists(self.path):
+            mt5.initialize(path=self.path, login=self.account, password=str(self.password), server=str(self.server), timeout=5000)
+        else:
+            if not mt5.initialize(timeout=5000):
+                default_path = r"C:\Program Files\MetaTrader 5\terminal64.exe"
+                if os.path.exists(default_path):
+                    mt5.initialize(path=default_path, timeout=5000)
 
         acc = mt5.account_info()
-        terminal_info = mt5.terminal_info()
+        if acc is None or (self.account and acc.login != self.account):
+            mt5.login(login=self.account, password=str(self.password), server=str(self.server), timeout=5000)
+            acc = mt5.account_info()
 
-        if terminal_info is None or acc is None or (self.account and acc.login != self.account):
-            # Only try explicit login if not already logged into the required account
-            if self.account and self.password and self.server:
-                logger.info(f"[{self.account_id.upper()}] Attempting login for #{self.account} on {self.server}...")
-                mt5.login(login=self.account, password=str(self.password), server=str(self.server))
-                acc = mt5.account_info()
-                terminal_info = mt5.terminal_info()
+        terminal_info = mt5.terminal_info()
 
         if terminal_info is None or acc is None:
             err_code, err_desc = mt5.last_error()
             logger.error(
-                f"[{self.account_id.upper()}] MT5 is not logged into an active trade account: [{err_code}] {err_desc}. "
-                f"Please open this account's MT5 terminal window and log in."
+                f"[{self.account_id.upper()}] MT5 is not logged into an active trade account: [{err_code}] {err_desc}."
             )
             return False
 
@@ -119,14 +121,12 @@ class MT5Connector:
             logger.error(f"[{self.account_id.upper()}] {msg}")
             return False
 
-        account_info = acc
         algo_status = self.get_algo_trading_status()
 
         logger.info(
             f"Connected to MT5 Terminal for [{self.account_id.upper()}] (Build: {terminal_info.build}) | "
-            f"Account: #{account_info.login} ({account_info.server}) | "
-            f"Balance: ${account_info.balance:.2f} {account_info.currency} | "
-            f"Equity: ${account_info.equity:.2f} | "
+            f"Account: #{acc.login} ({acc.server}) | Balance: ${acc.balance:.2f} {acc.currency} | "
+            f"Equity: ${acc.equity:.2f} | "
             f"MT5 Algo Trading: {'ENABLED' if algo_status['is_algo_enabled'] else 'DISABLED'}"
         )
 

@@ -143,6 +143,10 @@ class GoldTradingBot:
         successful_connections = 0
 
         for acc in active_accounts:
+            if not acc.has_credentials:
+                self.logger.info(f"[{acc.account_id.upper()}] Inactive credentials (no credentials in .env). Skipping.")
+                continue
+
             # Bind isolated RiskManager & OrderExecutor with account profile
             if acc.risk_manager is None:
                 acc.risk_manager = RiskManager(
@@ -328,6 +332,8 @@ class GoldTradingBot:
         # 1. INDEPENDENT ACCOUNT CONNECTION & POSITION MANAGEMENT
         # =====================================================================
         for acc in active_accounts:
+            if not acc.has_credentials:
+                continue
             try:
                 acc.connector.ensure_terminal_context()
                 prev_state = acc.state_machine.current_state
@@ -524,6 +530,8 @@ class GoldTradingBot:
             if (now - self.last_quick_heartbeat_time) >= self.quick_heartbeat_interval:
                 self.last_quick_heartbeat_time = now
                 for acc in active_accounts:
+                    if not acc.has_credentials:
+                        continue
                     positions = acc.executor.get_open_positions() if acc.executor else []
                     cb_status = acc.risk_manager.get_circuit_breaker_status(acc.equity) if acc.risk_manager else ""
                     algo_tag = "ALGO:ON" if acc.is_algo_trading_allowed else "ALGO:OFF"
@@ -566,6 +574,8 @@ class GoldTradingBot:
                 f"{'-'*80}",
             ]
             for acc in active_accounts:
+                if not acc.has_credentials:
+                    continue
                 perf = acc.risk_manager.get_module_performance_summary() if acc.risk_manager else {"total_day_pnl": 0.0, "scalp_pnl": 0.0, "scalp_wins": 0, "scalp_trades": 0, "musumali_pnl": 0.0, "musumali_wins": 0, "musumali_trades": 0}
                 sm_summary = acc.state_machine.get_summary()
                 lines.append(

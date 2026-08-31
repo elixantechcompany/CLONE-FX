@@ -92,7 +92,7 @@ accounts:
       fallback_login_var: "ACCOUNT_2_LOGIN"
       fallback_password_var: "ACCOUNT_2_PASSWORD"
       fallback_server_var: "ACCOUNT_2_SERVER"
-      is_active: true
+      is_active: false
 
     # ACCOUNT C: $20 Personal Account - Copy Master (Shared Strategy, Generates Copy Events for D)
     - id: "account_c"
@@ -125,7 +125,7 @@ accounts:
       fallback_login_var: "ACCOUNT_4_LOGIN"
       fallback_password_var: "ACCOUNT_4_PASSWORD"
       fallback_server_var: "ACCOUNT_4_SERVER"
-      is_active: true
+      is_active: false
 
 # ==============================================================================
 # 4. ISOLATED COPY TRADING ENGINE (Strictly Account C -> Account D)

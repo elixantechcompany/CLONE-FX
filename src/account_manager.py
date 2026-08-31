@@ -95,7 +95,15 @@ class AccountContext:
 
     @property
     def has_credentials(self) -> bool:
-        return bool(self.login and str(self.login).strip() and str(self.login).isdigit())
+        return bool(
+            self.login 
+            and str(self.login).strip() 
+            and str(self.login).isdigit() 
+            and self.password 
+            and str(self.password).strip() 
+            and self.server 
+            and str(self.server).strip()
+        )
 
     @property
     def is_independent(self) -> bool:

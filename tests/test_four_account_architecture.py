@@ -126,6 +126,7 @@ class TestFourAccountArchitecture(unittest.TestCase):
                 )
                 self.account_manager.accounts[acc_id] = acc
 
+            acc.is_active = True
             acc.connector = MockConnector(account_id=acc_id)
             acc.risk_manager = RiskManager(self.config, acc.connector, account_id=acc_id, account_type=acc.account_type)
             acc.executor = OrderExecutor(self.config, acc.connector, risk_manager=acc.risk_manager, account_id=acc_id)
