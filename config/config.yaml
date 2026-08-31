@@ -38,10 +38,10 @@ funded_account:
   preferred_risk_max_dollars: 5.00           # Preferred risk ceiling ($5.00)
   single_trade_hard_reject_dollars: 5.50     # Strict rejection ceiling
 
-  # Profit Management & Daily Objectives ($30 -> $40 -> $50 Lifecycle)
-  daily_profit_objective_min: 30.0           # +$30.00: Activate profit protection
-  daily_profit_objective_selective: 40.0     # +$40.00: High selectivity mode (Score >= 80)
-  daily_profit_objective_max: 50.0           # +$50.00: Stop opening unnecessary new trades
+  # Profit Management & Daily Objectives (Aiming for $30 -> $50 -> $100+ Daily Profits)
+  daily_profit_objective_min: 30.0           # +$30.00: Baseline milestone
+  daily_profit_objective_selective: 60.0     # +$60.00: High selectivity mode (Score >= 80)
+  daily_profit_objective_max: 150.0          # +$150.00: Generous profit ceiling
 
 # ==============================================================================
 # 2. PERSONAL $20 ACCOUNTS PROFILE (Accounts C & D)
@@ -53,7 +53,7 @@ personal_account:
   preferred_risk_max_dollars: 0.60           # Ceiling ($0.60)
   single_trade_hard_reject_dollars: 0.90     # Strict rejection if 0.01 lot loss exceeds $0.90
   daily_drawdown_limit_dollars: 2.50         # Daily hard stop at -$2.50 (Never blows $20 account)
-  daily_profit_objective_dollars: 3.00       # Target: +$3.00
+  daily_profit_objective_dollars: 30.0       # Aiming high for +$30.00+ on personal account
 
 # ==============================================================================
 # 3. EXACT 4-ACCOUNT CONFIGURATION & ROUTING
@@ -276,7 +276,7 @@ harmony_rules:
   max_musumali_positions: 1           # Max 1 Musumali trade per account
   max_scalper_positions: 1            # Max 1 Scalper trade per account
   max_positions_per_symbol: 1         # Max 1 open position per symbol per account
-  cooldown_seconds_per_trade: 90      # 90-second agile spacing between trades
+  cooldown_seconds_per_trade: 45      # 45-second agile spacing between trades
 
 # ==============================================================================
 # 11. RISK MANAGEMENT & SIZING ENGINE (SHARED LOGIC, ISOLATED STATE)
@@ -284,7 +284,7 @@ harmony_rules:
 risk_management:
   lot_mode: "dynamic_risk"            # STRICTLY DYNAMIC: Never fixed lots
   risk_per_trade_percent: 0.25        # Base 0.25% ($2.50 per trade on $1,000)
-  max_daily_trades: 35                # Active daily trade cap allowing multiple sessions
+  max_daily_trades: 100               # High ceiling so the bot can capture all high-conviction trades
   max_consecutive_losses: 3           # Max 3 consecutive losses before cooldown
   loss_cooldown_minutes: 15           # 15-minute cooldown on 3 losses
   

@@ -44,10 +44,12 @@ class TestMultiTerminalIsolation(unittest.TestCase):
         with open("config/config.yaml", "r") as f:
             self.config = yaml.safe_load(f)
 
+    @patch("MetaTrader5.initialize", return_value=True)
+    @patch("MetaTrader5.login", return_value=True)
     @patch("MetaTrader5.terminal_info")
     @patch("MetaTrader5.account_info")
     @patch("MetaTrader5.symbol_info")
-    def test_01_correct_terminal_identity_allows_trading(self, mock_sym, mock_acc, mock_term):
+    def test_01_correct_terminal_identity_allows_trading(self, mock_sym, mock_acc, mock_term, mock_login, mock_init):
         """Account A connecting to Terminal A with matching credentials passes 7-point check."""
         mock_acc.return_value = MockMT5Terminal(login=313812184, server="BrightFunded-Server", algo_allowed=True)
         mock_term.return_value = MockMT5Terminal(login=313812184, server="BrightFunded-Server", algo_allowed=True)
@@ -68,11 +70,13 @@ class TestMultiTerminalIsolation(unittest.TestCase):
         self.assertTrue(valid)
         self.assertEqual(msg, "OK")
 
+    @patch("MetaTrader5.initialize", return_value=True)
+    @patch("MetaTrader5.login", return_value=True)
     @patch("MetaTrader5.terminal_info")
     @patch("MetaTrader5.account_info")
     @patch("MetaTrader5.symbol_info")
     @patch("MetaTrader5.order_send")
-    def test_02_account_id_mismatch_blocks_all_orders(self, mock_send, mock_sym, mock_acc, mock_term):
+    def test_02_account_id_mismatch_blocks_all_orders(self, mock_send, mock_sym, mock_acc, mock_term, mock_login, mock_init):
         """If Account A connector attaches to Account B's terminal, execution is IMMEDIATELY BLOCKED."""
         # Terminal is running Account B (314138473), but Connector is Account A (expects 313812184)
         mock_acc.return_value = MockMT5Terminal(login=314138473, server="BrightFunded-Server", algo_allowed=True)
@@ -113,10 +117,12 @@ class TestMultiTerminalIsolation(unittest.TestCase):
         self.assertIsNone(ticket)
         mock_send.assert_not_called()
 
+    @patch("MetaTrader5.initialize", return_value=True)
+    @patch("MetaTrader5.login", return_value=True)
     @patch("MetaTrader5.terminal_info")
     @patch("MetaTrader5.account_info")
     @patch("MetaTrader5.symbol_info")
-    def test_03_server_mismatch_blocks_trading(self, mock_sym, mock_acc, mock_term):
+    def test_03_server_mismatch_blocks_trading(self, mock_sym, mock_acc, mock_term, mock_login, mock_init):
         """If broker server does not match expected server, trading is disabled."""
         mock_acc.return_value = MockMT5Terminal(login=313812184, server="OtherBroker-Demo", algo_allowed=True)
         mock_term.return_value = MockMT5Terminal(login=313812184, server="OtherBroker-Demo", algo_allowed=True)
@@ -134,10 +140,12 @@ class TestMultiTerminalIsolation(unittest.TestCase):
         self.assertIn("ACCOUNT ID MISMATCH — TRADING DISABLED", msg)
         self.assertIn("OtherBroker-Demo", msg)
 
+    @patch("MetaTrader5.initialize", return_value=True)
+    @patch("MetaTrader5.login", return_value=True)
     @patch("MetaTrader5.terminal_info")
     @patch("MetaTrader5.account_info")
     @patch("MetaTrader5.symbol_info")
-    def test_04_independent_algo_trading_switch_isolation(self, mock_sym, mock_acc, mock_term):
+    def test_04_independent_algo_trading_switch_isolation(self, mock_sym, mock_acc, mock_term, mock_login, mock_init):
         """
         Verify that Account A's Algo Trading OFF does not affect Account B's Algo Trading ON.
         Each terminal holds its own independent Algo Trading state.

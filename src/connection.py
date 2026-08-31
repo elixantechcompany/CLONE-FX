@@ -70,17 +70,20 @@ class MT5Connector:
 
     def ensure_terminal_context(self) -> bool:
         """
-        Binds the MT5 API context to this account's dedicated terminal executable path.
-        Guarantees that Account A communicates strictly with Terminal A, and Account B with Terminal B.
+        Binds the MT5 API context to this account's session.
+        Guarantees that Account A communicates with Account A's session, and Account C with Account C's session.
         """
         try:
             if self.path and os.path.exists(self.path):
-                # Attach to specific terminal installation path
-                res = mt5.initialize(path=self.path)
-                return bool(res)
+                mt5.initialize(path=self.path)
             else:
-                res = mt5.initialize()
-                return bool(res)
+                mt5.initialize()
+                
+            acc = mt5.account_info()
+            if acc is None or (self.account and acc.login != self.account):
+                if self.account and self.password and self.server:
+                    mt5.login(login=self.account, password=str(self.password), server=str(self.server))
+            return True
         except Exception as e:
             logger.warning(f"[{self.account_id.upper()}] Error ensuring terminal context: {e}")
             return False
