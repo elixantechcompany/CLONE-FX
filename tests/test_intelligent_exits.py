@@ -195,10 +195,10 @@ class TestIntelligentExitEngine(unittest.TestCase):
             "type": "BUY",
             "volume": 0.01,
             "price_open": 2650.00,
-            "price_current": 2651.00, # Reached +1.0 price gain = +0.50R
+            "price_current": 2650.50, # Reached +0.50 price gain
             "sl": 2648.00,
             "tp": 2656.00,
-            "profit": 1.00,
+            "profit": 0.50,
             "magic": 1001,
         }
         df_m1 = create_dummy_df(30, 2650.0, "bullish")

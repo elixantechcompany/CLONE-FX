@@ -92,10 +92,10 @@ class RiskManager:
             self.trailing_reduced_risk_drawdown = float(self.funded_cfg.get("internal_trailing_reduced_risk_dollars", 40.0))
             self.trailing_hard_stop_drawdown = float(self.funded_cfg.get("internal_trailing_hard_stop_dollars", 50.0))
 
-            self.max_single_trade_risk = float(self.funded_cfg.get("max_single_trade_risk_dollars", 5.00))
-            self.preferred_risk_min = float(self.funded_cfg.get("preferred_risk_min_dollars", 2.50))
-            self.preferred_risk_max = float(self.funded_cfg.get("preferred_risk_max_dollars", 5.00))
-            self.single_trade_hard_reject = float(self.funded_cfg.get("single_trade_hard_reject_dollars", 5.50))
+            self.max_single_trade_risk = float(self.funded_cfg.get("max_single_trade_risk_dollars", 3.00))
+            self.preferred_risk_min = float(self.funded_cfg.get("preferred_risk_min_dollars", 2.00))
+            self.preferred_risk_max = float(self.funded_cfg.get("preferred_risk_max_dollars", 3.00))
+            self.single_trade_hard_reject = float(self.funded_cfg.get("single_trade_hard_reject_dollars", 3.50))
 
             self.profit_protect_trigger = float(self.funded_cfg.get("daily_profit_objective_min", 30.0))
             self.profit_high_selectivity_trigger = float(self.funded_cfg.get("daily_profit_objective_selective", 40.0))
@@ -389,23 +389,23 @@ class RiskManager:
         if self.account_type == "PERSONAL":
             # Personal $20 Profile
             if quality_score >= 80:
-                base_dollar_risk = 0.48
+                base_dollar_risk = 0.45
             elif quality_score >= 65:
-                base_dollar_risk = 0.38
+                base_dollar_risk = 0.35
             elif quality_score >= 50:
-                base_dollar_risk = 0.28
+                base_dollar_risk = 0.25
             else:
-                base_dollar_risk = 0.20
+                base_dollar_risk = 0.18
         else:
             # BrightFunded $1,000 Profile
             if quality_score >= 80:
-                base_dollar_risk = 4.75
+                base_dollar_risk = 3.00
             elif quality_score >= 65:
-                base_dollar_risk = 3.75
+                base_dollar_risk = 2.50
             elif quality_score >= 50:
-                base_dollar_risk = 2.75
-            else:
                 base_dollar_risk = 2.00
+            else:
+                base_dollar_risk = 1.50
 
         allocated_dollar_risk = base_dollar_risk * self.risk_reduction_multiplier
 

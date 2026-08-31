@@ -142,7 +142,7 @@ class M1Scalper:
             s_mom += 5
 
         s_candle = 0
-        if "Liquidity Sweep" in pattern_lbl or "Hammer" in pattern_lbl or "Shooting Star" in pattern_lbl:
+        if "Breakout" in pattern_lbl or "Liquidity Sweep" in pattern_lbl or "Hammer" in pattern_lbl or "Shooting Star" in pattern_lbl:
             s_candle = 25
         elif "Engulfing" in pattern_lbl:
             s_candle = 22
@@ -258,99 +258,106 @@ class M1Scalper:
         upper_wick = prev_bar["high"] - max(prev_bar["open"], prev_bar["close"])
         lower_wick = min(prev_bar["open"], prev_bar["close"]) - prev_bar["low"]
 
-        # Bullish Patterns
-        is_bull_live_break = (tick.ask >= prev_bar["high"]) and (prev_bar["close"] >= prev_bar["open"] or prev_bar["close"] >= prev_bar["ema_fast"])
-        is_bull_pinbar = (lower_wick / tot_range >= 0.25) and (upper_wick / tot_range <= 0.40)
-        is_bull_engulfing = (prev_bar["close"] > prev_bar["open"]) and (prev_bar["close"] >= prior_bar["high"])
-        is_bull_momentum = (prev_bar["close"] > prev_bar["open"]) and (prev_bar["close"] >= prev_bar["ema_fast"])
-        is_bull_pullback = (prev_bar["low"] <= prev_bar["ema_fast"] or prev_bar["low"] <= prev_bar["ema_slow"]) and (prev_bar["close"] > prev_bar["open"])
-        is_bull_sweep = (prev_bar["low"] < recent_low) and (prev_bar["close"] > recent_low)
+        # =====================================================================
+        # CLOSED-CANDLE CONFIRMATION CRITERIA (NO INTRABAR/DEVELOPING TRIGGERS)
+        # =====================================================================
+        # Bullish Patterns (Evaluated strictly on completed closed candle iloc[-2])
+        is_bull_breakout_closed = (prev_bar["close"] > recent_high) and (prev_bar["close"] > prev_bar["open"]) and (prior_bar["close"] <= recent_high)
+        is_bull_pinbar = (lower_wick / tot_range >= 0.30) and (upper_wick / tot_range <= 0.35) and (prev_bar["close"] >= prev_bar["open"])
+        is_bull_engulfing = (prev_bar["close"] > prev_bar["open"]) and (prev_bar["close"] >= prior_bar["high"]) and (prior_bar["close"] < prior_bar["open"])
+        is_bull_pullback = (prior_bar["close"] <= prior_bar["open"]) and (prior_bar["low"] <= prev_bar["ema_fast"] or prior_bar["low"] <= prev_bar["ema_slow"]) and (prev_bar["close"] > prev_bar["ema_fast"]) and (prev_bar["close"] > prev_bar["open"])
+        is_bull_sweep = (prev_bar["low"] < recent_low) and (prev_bar["close"] > recent_low) and (prev_bar["close"] > prev_bar["open"])
 
-        # Bearish Patterns
-        is_bear_live_break = (tick.bid <= prev_bar["low"]) and (prev_bar["close"] <= prev_bar["open"] or prev_bar["close"] <= prev_bar["ema_fast"])
-        is_bear_pinbar = (upper_wick / tot_range >= 0.25) and (lower_wick / tot_range <= 0.40)
-        is_bear_engulfing = (prev_bar["close"] < prev_bar["open"]) and (prev_bar["close"] <= prior_bar["low"])
-        is_bear_momentum = (prev_bar["close"] < prev_bar["open"]) and (prev_bar["close"] <= prev_bar["ema_fast"])
-        is_bear_pullback = (prev_bar["high"] >= prev_bar["ema_fast"] or prev_bar["high"] >= prev_bar["ema_slow"]) and (prev_bar["close"] < prev_bar["open"])
-        is_bear_sweep = (prev_bar["high"] > recent_high) and (prev_bar["close"] < recent_high)
+        # Bearish Patterns (Evaluated strictly on completed closed candle iloc[-2])
+        is_bear_breakout_closed = (prev_bar["close"] < recent_low) and (prev_bar["close"] < prev_bar["open"]) and (prior_bar["close"] >= recent_low)
+        is_bear_pinbar = (upper_wick / tot_range >= 0.30) and (lower_wick / tot_range <= 0.35) and (prev_bar["close"] <= prev_bar["open"])
+        is_bear_engulfing = (prev_bar["close"] < prev_bar["open"]) and (prev_bar["close"] <= prior_bar["low"]) and (prior_bar["close"] > prior_bar["open"])
+        is_bear_pullback = (prior_bar["close"] >= prior_bar["open"]) and (prior_bar["high"] >= prev_bar["ema_fast"] or prior_bar["high"] >= prev_bar["ema_slow"]) and (prev_bar["close"] < prev_bar["ema_fast"]) and (prev_bar["close"] < prev_bar["open"])
+        is_bear_sweep = (prev_bar["high"] > recent_high) and (prev_bar["close"] < recent_high) and (prev_bar["close"] < prev_bar["open"])
 
         # -----------------------------------------------------------------
-        # 1. BEARISH / SELL SETUP
+        # 1. BEARISH / SELL SETUP & CONFIRMATION
         # -----------------------------------------------------------------
         is_sell_trend = prev_bar["ema_fast"] <= prev_bar["ema_slow"]
         valid_bear_pattern = (
-            is_bear_live_break or is_bear_pinbar or is_bear_engulfing or 
-            (is_sell_trend and (is_bear_momentum or is_bear_pullback)) or is_bear_sweep
+            is_bear_breakout_closed or is_bear_pinbar or is_bear_engulfing or 
+            (is_sell_trend and is_bear_pullback) or is_bear_sweep
         )
 
         if valid_bear_pattern:
-            pattern_lbl = "Bearish Momentum / Pullback"
-            if is_bear_sweep:
-                pattern_lbl = "Bearish Liquidity Sweep"
+            pattern_lbl = "Bearish Pullback Rejection"
+            if is_bear_breakout_closed:
+                pattern_lbl = "Confirmed Bearish Breakout"
+            elif is_bear_sweep:
+                pattern_lbl = "Bearish Liquidity Sweep & Close Reclaim"
             elif is_bear_pinbar:
                 pattern_lbl = "Bearish Shooting Star Rejection"
             elif is_bear_engulfing:
-                pattern_lbl = "Bearish Engulfing"
+                pattern_lbl = "Bearish Engulfing Confirmation"
 
-            rsi_ok_sell = (rsi >= 28.0 and rsi <= 70.0) or (is_bear_pinbar or is_bear_sweep)
+            rsi_ok_sell = (rsi >= 30.0 and rsi <= 68.0) or (is_bear_pinbar or is_bear_sweep)
             if rsi_ok_sell:
                 score, breakdown, passed = self.calculate_quality_score(
                     symbol, tf_name, "SELL", trend_ctx, slope, rsi, vol_confirmed, pattern_lbl, current_spread, atr, quality_threshold
                 )
                 if passed:
-                    max_chase = max(atr * 1.2, 3.50 if "XAU" in symbol else 200.0)
+                    max_chase = max(atr * 1.0, 2.50 if "XAU" in symbol else 180.0)
                     chase_dist = prev_bar["close"] - tick.bid
-                    if chase_dist >= -1.50 and chase_dist <= max_chase:
+                    # Disallow entries if price has drifted more than max_chase or moved above previous bar high (invalidated)
+                    if -1.00 <= chase_dist <= max_chase and tick.bid <= prev_bar["high"]:
                         entry = tick.bid
                         stop_loss = round(entry + sl_dist, digits)
                         take_profit = round(entry - tp_dist, digits)
                         candle_id = f"SCALP_SELL_{symbol}_{tf_name}_{c_time_str}"
                         reason = (
-                            f"[SCALP SELL {tf_name}] {symbol} Pattern: {pattern_lbl} @ {entry:.2f} | "
+                            f"[CONFIRMED SCALP SELL {tf_name}] {symbol} Pattern: {pattern_lbl} @ {entry:.2f} | "
                             f"Quality: {score}/100 | RSI: {rsi:.1f} | ATR: ${atr:.2f} | "
                             f"SL: {stop_loss:.2f} (-${sl_dist:.2f}) | TP: {take_profit:.2f} (+${tp_dist:.2f})"
                         )
                         return "SELL", entry, stop_loss, take_profit, candle_id, score, reason
 
         # -----------------------------------------------------------------
-        # 2. BULLISH / BUY SETUP
+        # 2. BULLISH / BUY SETUP & CONFIRMATION
         # -----------------------------------------------------------------
         is_buy_trend = prev_bar["ema_fast"] >= prev_bar["ema_slow"]
         valid_bull_pattern = (
-            is_bull_live_break or is_bull_pinbar or is_bull_engulfing or 
-            (is_buy_trend and (is_bull_momentum or is_bull_pullback)) or is_bull_sweep
+            is_bull_breakout_closed or is_bull_pinbar or is_bull_engulfing or 
+            (is_buy_trend and is_bull_pullback) or is_bull_sweep
         )
 
         if valid_bull_pattern:
-            pattern_lbl = "Bullish Momentum / Breakout"
-            if is_bull_sweep:
-                pattern_lbl = "Bullish Liquidity Sweep"
+            pattern_lbl = "Bullish Pullback Rejection"
+            if is_bull_breakout_closed:
+                pattern_lbl = "Confirmed Bullish Breakout"
+            elif is_bull_sweep:
+                pattern_lbl = "Bullish Liquidity Sweep & Close Reclaim"
             elif is_bull_pinbar:
                 pattern_lbl = "Bullish Hammer Rejection"
             elif is_bull_engulfing:
-                pattern_lbl = "Bullish Engulfing"
+                pattern_lbl = "Bullish Engulfing Confirmation"
 
-            rsi_ok_buy = (rsi >= 30.0 and rsi <= 72.0) or (is_bull_pinbar or is_bull_sweep)
+            rsi_ok_buy = (rsi >= 32.0 and rsi <= 70.0) or (is_bull_pinbar or is_bull_sweep)
             if rsi_ok_buy:
                 score, breakdown, passed = self.calculate_quality_score(
                     symbol, tf_name, "BUY", trend_ctx, slope, rsi, vol_confirmed, pattern_lbl, current_spread, atr, quality_threshold
                 )
                 if passed:
-                    max_chase = max(atr * 1.2, 3.50 if "XAU" in symbol else 200.0)
+                    max_chase = max(atr * 1.0, 2.50 if "XAU" in symbol else 180.0)
                     chase_dist = tick.ask - prev_bar["close"]
-                    if chase_dist >= -1.50 and chase_dist <= max_chase:
+                    # Disallow entries if price has drifted more than max_chase or moved below previous bar low (invalidated)
+                    if -1.00 <= chase_dist <= max_chase and tick.ask >= prev_bar["low"]:
                         entry = tick.ask
                         stop_loss = round(entry - sl_dist, digits)
                         take_profit = round(entry + tp_dist, digits)
                         candle_id = f"SCALP_BUY_{symbol}_{tf_name}_{c_time_str}"
                         reason = (
-                            f"[SCALP BUY {tf_name}] {symbol} Pattern: {pattern_lbl} @ {entry:.2f} | "
+                            f"[CONFIRMED SCALP BUY {tf_name}] {symbol} Pattern: {pattern_lbl} @ {entry:.2f} | "
                             f"Quality: {score}/100 | RSI: {rsi:.1f} | ATR: ${atr:.2f} | "
                             f"SL: {stop_loss:.2f} (-${sl_dist:.2f}) | TP: {take_profit:.2f} (+${tp_dist:.2f})"
                         )
                         return "BUY", entry, stop_loss, take_profit, candle_id, score, reason
 
-        return None, 0.0, 0.0, 0.0, None, 0, f"No setup on {symbol} {tf_name}"
+        return None, 0.0, 0.0, 0.0, None, 0, f"No confirmed setup on {symbol} {tf_name}"
 
     def scan_for_scalp_candidates(
         self,

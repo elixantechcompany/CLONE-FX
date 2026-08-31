@@ -216,8 +216,8 @@ class MusumaliStrategy:
         sl_dist = round(max(min(raw_sl_dist, max_sl_dist), min_sl_dist), digits)
         tp_dist = round(sl_dist * self.risk_reward_ratio, digits)
 
-        # Check recent closed candles
-        for offset in [-2, -3, -4]:
+        # Check recent closed candles for sweep & rejection (offset -2, -3, -4)
+        for offset in [-3, -4, -5]:
             if abs(offset) >= len(df):
                 continue
             sweep_bar = df.iloc[offset]
@@ -240,21 +240,23 @@ class MusumaliStrategy:
             prev_swing_high = window["high"].max()
             prev_swing_low = window["low"].min()
 
-            # Funnel Stage 1: Zones identified
+            # Funnel Stage 1: Area of Benefit (Swing Level identified)
             zone_key = f"zone_{symbol}_{tf_name}_{c_time_str}"
             if zone_key not in self.funnel.seen_events:
                 self.funnel.seen_events.add(zone_key)
                 self.funnel.zones_identified += 1
 
             # -----------------------------------------------------------------
-            # SELL SETUP: Sweep of Swing High with Rejection
+            # 4-STAGE SEQUENTIAL FUNNEL: SELL SETUP
             # -----------------------------------------------------------------
+            # STAGE 2: Liquidity Sweep
             if sweep_bar["high"] >= prev_swing_high:
                 sweep_key = f"sweep_{symbol}_{tf_name}_{c_time_str}"
                 if sweep_key not in self.funnel.seen_events:
                     self.funnel.seen_events.add(sweep_key)
                     self.funnel.zones_swept += 1
 
+                # STAGE 3: Rejection Candle Close
                 reclaimed = sweep_bar["close"] < prev_swing_high or (upper_wick / tot_range >= self.min_rejection_wick_pct and is_bearish)
                 if reclaimed:
                     musumali_key = f"musumali_{symbol}_{tf_name}_{c_time_str}"
@@ -265,12 +267,27 @@ class MusumaliStrategy:
                     if self.require_htf_alignment and htf_trend == "UPTREND":
                         continue
 
-                    tick = mt5.symbol_info_tick(symbol)
-                    if tick is None or tick.ask > sweep_bar["high"] or tick.bid > sweep_bar["low"]:
+                    # STAGE 4: Confirmed Closed-Candle Breakout Below Rejection Low
+                    # Check the closed bars between sweep_bar and live candle
+                    trigger_low = sweep_bar["low"]
+                    invalidation_high = sweep_bar["high"]
+                    
+                    last_closed_bar = df.iloc[-2]
+                    # Confirmation requires last closed candle to close firmly below trigger_low
+                    breakout_confirmed = (last_closed_bar["close"] < trigger_low) and (last_closed_bar["close"] < last_closed_bar["open"])
+                    is_invalidated = any(df["high"].iloc[offset + 1:-1] > invalidation_high) or (last_closed_bar["high"] > invalidation_high)
+                    bars_since_sweep = abs(offset) - 1
+
+                    # Expire if more than 3 bars without breakout, or if invalidated
+                    if is_invalidated or bars_since_sweep > 3 or not breakout_confirmed:
                         continue
 
-                    max_chase = max(sl_dist * 1.2, 5.0 if "XAU" in symbol else 300.0)
-                    if (sweep_bar["low"] - tick.bid) > max_chase:
+                    tick = mt5.symbol_info_tick(symbol)
+                    if tick is None or tick.ask > invalidation_high:
+                        continue
+
+                    max_chase = max(sl_dist * 1.0, 4.0 if "XAU" in symbol else 250.0)
+                    if (trigger_low - tick.bid) > max_chase:
                         continue
 
                     break_key = f"break_{symbol}_{tf_name}_{c_time_str}"
@@ -301,21 +318,23 @@ class MusumaliStrategy:
                     )
 
                     reason = (
-                        f"[MUSUMALI SELL {tf_name}] {symbol} Swept High {prev_swing_high:.2f} -> Confirmed Breakdown Below {sweep_bar['low']:.2f} | "
+                        f"[CONFIRMED MUSUMALI SELL {tf_name}] {symbol} Swept High {prev_swing_high:.2f} -> Closed Breakdown Below {trigger_low:.2f} | "
                         f"Quality: {quality_score}/100 | Entry: {entry:.2f} | SL: {stop_loss:.2f} (-${sl_dist:.2f}) | TP: {take_profit:.2f} (+${tp_dist:.2f}) | "
                         f"HTF Bias: {htf_trend}"
                     )
                     return "SELL", entry, stop_loss, take_profit, candle_id, zone_id, quality_score, reason
 
             # -----------------------------------------------------------------
-            # BUY SETUP: Sweep of Swing Low with Rejection
+            # 4-STAGE SEQUENTIAL FUNNEL: BUY SETUP
             # -----------------------------------------------------------------
+            # STAGE 2: Liquidity Sweep
             if sweep_bar["low"] <= prev_swing_low:
                 sweep_key = f"sweep_{symbol}_{tf_name}_{c_time_str}"
                 if sweep_key not in self.funnel.seen_events:
                     self.funnel.seen_events.add(sweep_key)
                     self.funnel.zones_swept += 1
 
+                # STAGE 3: Rejection Candle Close
                 reclaimed = sweep_bar["close"] > prev_swing_low or (lower_wick / tot_range >= self.min_rejection_wick_pct and is_bullish)
                 if reclaimed:
                     musumali_key = f"musumali_{symbol}_{tf_name}_{c_time_str}"
@@ -326,12 +345,26 @@ class MusumaliStrategy:
                     if self.require_htf_alignment and htf_trend == "DOWNTREND":
                         continue
 
-                    tick = mt5.symbol_info_tick(symbol)
-                    if tick is None or tick.bid < sweep_bar["low"] or tick.ask < sweep_bar["high"]:
+                    # STAGE 4: Confirmed Closed-Candle Breakout Above Rejection High
+                    trigger_high = sweep_bar["high"]
+                    invalidation_low = sweep_bar["low"]
+
+                    last_closed_bar = df.iloc[-2]
+                    # Confirmation requires last closed candle to close firmly above trigger_high
+                    breakout_confirmed = (last_closed_bar["close"] > trigger_high) and (last_closed_bar["close"] > last_closed_bar["open"])
+                    is_invalidated = any(df["low"].iloc[offset + 1:-1] < invalidation_low) or (last_closed_bar["low"] < invalidation_low)
+                    bars_since_sweep = abs(offset) - 1
+
+                    # Expire if more than 3 bars without breakout, or if invalidated
+                    if is_invalidated or bars_since_sweep > 3 or not breakout_confirmed:
                         continue
 
-                    max_chase = max(sl_dist * 1.2, 5.0 if "XAU" in symbol else 300.0)
-                    if (tick.ask - sweep_bar["high"]) > max_chase:
+                    tick = mt5.symbol_info_tick(symbol)
+                    if tick is None or tick.bid < invalidation_low:
+                        continue
+
+                    max_chase = max(sl_dist * 1.0, 4.0 if "XAU" in symbol else 250.0)
+                    if (tick.ask - trigger_high) > max_chase:
                         continue
 
                     break_key = f"break_{symbol}_{tf_name}_{c_time_str}"
@@ -362,7 +395,7 @@ class MusumaliStrategy:
                     )
 
                     reason = (
-                        f"[MUSUMALI BUY {tf_name}] {symbol} Swept Low {prev_swing_low:.2f} -> Confirmed Breakout Above {sweep_bar['high']:.2f} | "
+                        f"[CONFIRMED MUSUMALI BUY {tf_name}] {symbol} Swept Low {prev_swing_low:.2f} -> Closed Breakout Above {trigger_high:.2f} | "
                         f"Quality: {quality_score}/100 | Entry: {entry:.2f} | SL: {stop_loss:.2f} (-${sl_dist:.2f}) | TP: {take_profit:.2f} (+${tp_dist:.2f}) | "
                         f"HTF Bias: {htf_trend}"
                     )

@@ -121,8 +121,11 @@ class IntelligentExitEngine:
         self.scalp_max_bars_timeout = int(self.profit_cfg.get("scalp_timeout_bars", 15))
         self.musumali_max_bars_timeout = int(self.profit_cfg.get("musumali_timeout_bars", 25))
 
-        # Dollar step lock explicitly disabled to prevent noise stopping
-        self.dollar_step_lock_enabled = False
+        # Fast Breakeven & 50-Cent Step Profit Lock Engine
+        self.dollar_step_lock_enabled = self.profit_cfg.get("dollar_step_lock_enabled", True)
+        self.step_trigger_dollars = float(self.profit_cfg.get("step_trigger_dollars", 0.50))
+        self.step_size_dollars = float(self.profit_cfg.get("step_size_dollars", 0.50))
+        self.breakeven_buffer_dollars = float(self.profit_cfg.get("breakeven_buffer_dollars", 0.05))
 
         # Active trade records map: ticket -> PositionRecord
         self.records: Dict[int, PositionRecord] = {}
@@ -392,9 +395,9 @@ class IntelligentExitEngine:
         # =====================================================================
         # STATE 6: EMERGENCY REAL-TIME LOSS GUARD (Catastrophic Risk Backstop)
         # =====================================================================
-        # If position loss exceeds configured safety cap ($5.00 on 1K / $1.00 on $20), close immediately
+        # If position loss exceeds configured safety cap ($3.50 on 1K / $0.80 on $20), close immediately
         is_personal = "PERSONAL" in str(getattr(rec, "account_id", "")).upper() or "20" in str(getattr(rec, "account_id", ""))
-        hard_loss_cap = 1.00 if is_personal else 5.00
+        hard_loss_cap = 0.80 if is_personal else 3.50
         if profit <= -hard_loss_cap:
             rec.state = PositionState.STATE_6_EMERGENCY
             rec.exit_reason = f"EMERGENCY_REAL_TIME_LOSS_GUARD (Loss ${abs(profit):.2f} >= Cap ${hard_loss_cap:.2f})"
@@ -451,6 +454,34 @@ class IntelligentExitEngine:
             rec.exit_reason = f"TIMEOUT_MOMENTUM_FAILURE (Held {rec.bars_held} bars without progress, Current R: {current_r:+.2f}R)"
             logger.info(f"[{rec.account_id}] Ticket #{ticket} Stale Trade Timeout -> {rec.exit_reason}")
             return ExitDecision.CLOSE_MARKET, None, rec.exit_reason
+
+        # =====================================================================
+        # FAST BREAKEVEN & IMMEDIATE 50-CENT PROFIT STEP LOCK
+        # Enforces:
+        #   - Immediate breakeven at +$0.50 profit (+0.05 cushion).
+        #   - Immediate profit lock advancing every +$0.50 added in profits.
+        # =====================================================================
+        if self.dollar_step_lock_enabled and profit >= self.step_trigger_dollars:
+            dollar_multiplier = (vol * 100.0) if ("BTC" not in symbol.upper()) else vol
+            if dollar_multiplier > 0:
+                step_num = int(profit / self.step_size_dollars)
+                if step_num >= 1:
+                    if step_num == 1:
+                        locked_dollars = self.breakeven_buffer_dollars
+                        step_desc = f"FAST_BREAKEVEN_LOCK (+${profit:.2f} >= $0.50 -> Moving SL to Breakeven [+${locked_dollars:.2f} cushion])"
+                        decision_type = ExitDecision.LOCK_BREAKEVEN
+                    else:
+                        locked_dollars = (step_num - 1) * self.step_size_dollars
+                        step_desc = f"PROFIT_STEP_LOCK (+${profit:.2f} -> Step {step_num} Locking +${locked_dollars:.2f} Profit)"
+                        decision_type = ExitDecision.TIGHTEN_PROTECTION
+
+                    locked_pts = locked_dollars / dollar_multiplier
+                    step_sl = round(open_price + locked_pts, digits) if p_type == "BUY" else round(open_price - locked_pts, digits)
+
+                    if (p_type == "BUY" and step_sl > current_sl) or (p_type == "SELL" and (current_sl == 0 or step_sl < current_sl)):
+                        rec.be_applied = True
+                        rec.state = PositionState.STATE_2_PROFITABLE
+                        return decision_type, step_sl, step_desc
 
         # =====================================================================
         # STATE 3: STRONG WINNER (Runners above +1.50R / +2.00R / +3.00R+)

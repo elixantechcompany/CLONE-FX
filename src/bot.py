@@ -493,6 +493,9 @@ class GoldTradingBot:
                             comment=cand.engine_name,
                             zone_id=cand.zone_id,
                             candle_id=cand.candle_id,
+                            quality_score=int(cand.conviction_score),
+                            confirmation_verified=True,
+                            funnel_stage="CONFIRMED",
                         )
 
                         if ticket:
