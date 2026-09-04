@@ -88,6 +88,14 @@ class PositionRecord:
         self.be_applied = False
         self.exit_reason: Optional[str] = None
 
+    def update_volume(self, new_volume: float):
+        """Updates position volume after partial close and recalculates remaining 1R USD risk."""
+        self.volume = new_volume
+        if "BTC" in self.symbol.upper():
+            self.initial_risk_dollars = self.initial_risk_dist * new_volume
+        else:
+            self.initial_risk_dollars = self.initial_risk_dist * new_volume * 100.0
+
 
 class IntelligentExitEngine:
     def __init__(self, config: dict):
@@ -127,8 +135,18 @@ class IntelligentExitEngine:
         self.step_size_dollars = float(self.profit_cfg.get("step_size_dollars", 0.50))
         self.breakeven_buffer_dollars = float(self.profit_cfg.get("breakeven_buffer_dollars", 0.05))
 
+        # Dynamic Continuous Trailing Stop Configuration
+        self.trailing_enabled = bool(self.profit_cfg.get("trailing_enabled", True))
+        self.trailing_trigger_r = float(self.profit_cfg.get("trailing_trigger_r", 1.40))
+        self.trailing_distance_r = float(self.profit_cfg.get("trailing_distance_r", 0.60))
+
         # Active trade records map: ticket -> PositionRecord
         self.records: Dict[int, PositionRecord] = {}
+
+    def update_position_volume(self, ticket: int, new_volume: float):
+        """Updates volume on active position record (e.g. after partial profit collection)."""
+        if ticket in self.records:
+            self.records[ticket].update_volume(new_volume)
 
     def register_position(
         self,
@@ -457,15 +475,18 @@ class IntelligentExitEngine:
             return ExitDecision.CLOSE_MARKET, None, rec.exit_reason
 
         # =====================================================================
-        # FAST BREAKEVEN & IMMEDIATE PROFIT STEP LOCK
+        # PROGRESSIVE MULTI-STAGE PROFIT-LOCK & SL ADVANCEMENT ENGINE
         # Enforces:
-        #   - Immediate breakeven at +$0.30 profit on Scalper / +$0.20 on $20 (+cushion).
-        #   - Immediate profit lock advancing every step added in profits.
+        #   1. Fast Breakeven & Immediate Step Lock (Advancing with profit milestones).
+        #   2. Dynamic R-Multiple Tier Locks (Tier 1, Tier 2, Tier 3, Tier 4).
+        #   3. Continuous Volatility-Aware Trailing Stops (Letting big winners run).
+        #   4. Strict Ratchet Guarantee: SL ONLY moves forward towards profit, never backward.
         # =====================================================================
         step_trig = self.step_trigger_dollars
         step_sz = self.step_size_dollars
         be_buf = self.breakeven_buffer_dollars
 
+        # 1. Fast Breakeven & Dollar Step Lock Engine
         if self.dollar_step_lock_enabled and profit >= step_trig:
             dollar_multiplier = (vol * 100.0) if ("BTC" not in symbol.upper()) else vol
             if dollar_multiplier > 0:
@@ -488,13 +509,12 @@ class IntelligentExitEngine:
                         rec.state = PositionState.STATE_2_PROFITABLE
                         return decision_type, step_sl, step_desc
 
-        # =====================================================================
-        # STATE 3: STRONG WINNER (Runners above +1.50R / +2.00R / +3.00R+)
-        # =====================================================================
+        # 2. STATE 3: STRONG WINNER (Runners above +1.50R / +2.00R / +3.00R+)
         if current_r >= self.r_tier4_trigger:
             rec.state = PositionState.STATE_3_STRONG_WINNER
             lock_price = round(open_price + (risk_dist * self.r_tier4_lock), digits) if p_type == "BUY" else round(open_price - (risk_dist * self.r_tier4_lock), digits)
-            trailing_buffer = round(max(risk_dist * 0.40, live_atr * 0.75, 1.50), digits)
+            min_buff = 1.50 if "XAU" in symbol.upper() else (50.0 if "BTC" in symbol.upper() else 0.01)
+            trailing_buffer = round(max(risk_dist * 0.40, live_atr * 0.75, min_buff), digits)
             trail_sl = round(curr_price - trailing_buffer, digits) if p_type == "BUY" else round(curr_price + trailing_buffer, digits)
             eff_sl = max(trail_sl, lock_price) if p_type == "BUY" else min(trail_sl, lock_price)
             if (p_type == "BUY" and eff_sl > current_sl) or (p_type == "SELL" and (current_sl == 0 or eff_sl < current_sl)):
@@ -503,32 +523,43 @@ class IntelligentExitEngine:
         elif current_r >= self.r_tier3_trigger:
             rec.state = PositionState.STATE_3_STRONG_WINNER
             lock_price = round(open_price + (risk_dist * self.r_tier3_lock), digits) if p_type == "BUY" else round(open_price - (risk_dist * self.r_tier3_lock), digits)
-            trailing_buffer = round(max(risk_dist * 0.50, live_atr * 0.85, 1.80), digits)
+            min_buff = 1.80 if "XAU" in symbol.upper() else (80.0 if "BTC" in symbol.upper() else 0.01)
+            trailing_buffer = round(max(risk_dist * 0.50, live_atr * 0.85, min_buff), digits)
             trail_sl = round(curr_price - trailing_buffer, digits) if p_type == "BUY" else round(curr_price + trailing_buffer, digits)
             eff_sl = max(trail_sl, lock_price) if p_type == "BUY" else min(trail_sl, lock_price)
             if (p_type == "BUY" and eff_sl > current_sl) or (p_type == "SELL" and (current_sl == 0 or eff_sl < current_sl)):
                 return ExitDecision.TRAIL_ATR, eff_sl, f"TIER3_INTELLIGENT_TRAIL (+{current_r:.2f}R -> Locking +{self.r_tier3_lock:.2f}R @ {eff_sl:.2f})"
 
+        # 3. Dynamic Continuous ATR Trailing
+        elif self.trailing_enabled and current_r >= self.trailing_trigger_r:
+            rec.state = PositionState.STATE_3_STRONG_WINNER
+            trail_dist = round(max(risk_dist * self.trailing_distance_r, live_atr * 0.80), digits)
+            trail_sl = round(curr_price - trail_dist, digits) if p_type == "BUY" else round(curr_price + trail_dist, digits)
+            if (p_type == "BUY" and trail_sl > current_sl) or (p_type == "SELL" and (current_sl == 0 or trail_sl < current_sl)):
+                return ExitDecision.TRAIL_ATR, trail_sl, f"CONTINUOUS_ATR_TRAIL (+{current_r:.2f}R -> Trailing SL @ {trail_sl:.2f})"
+
+        # 4. R-Multiple Tier 2 Protection
         elif current_r >= self.r_tier2_trigger:
             rec.state = PositionState.STATE_3_STRONG_WINNER
             lock_price = round(open_price + (risk_dist * self.r_tier2_lock), digits) if p_type == "BUY" else round(open_price - (risk_dist * self.r_tier2_lock), digits)
             if (p_type == "BUY" and lock_price > current_sl) or (p_type == "SELL" and (current_sl == 0 or lock_price < current_sl)):
                 return ExitDecision.TIGHTEN_PROTECTION, lock_price, f"PROFIT_LOCK_TIER2 (+{current_r:.2f}R -> Locking +{self.r_tier2_lock:.2f}R @ {lock_price:.2f})"
 
-        # =====================================================================
-        # STATE 2: PROFITABLE (+0.50R Breakeven Lock & +1.00R Tier 1 Protection)
-        # =====================================================================
+        # 5. STATE 2: PROFITABLE (+0.50R Breakeven Lock & +1.00R Tier 1 Protection)
         elif current_r >= self.r_tier1_trigger:
             rec.state = PositionState.STATE_2_PROFITABLE
             lock_price = round(open_price + (risk_dist * self.r_tier1_lock), digits) if p_type == "BUY" else round(open_price - (risk_dist * self.r_tier1_lock), digits)
             if (p_type == "BUY" and lock_price > current_sl) or (p_type == "SELL" and (current_sl == 0 or lock_price < current_sl)):
                 return ExitDecision.TIGHTEN_PROTECTION, lock_price, f"PROFIT_LOCK_TIER1 (+{current_r:.2f}R -> Locking +{self.r_tier1_lock:.2f}R @ {lock_price:.2f})"
 
-        elif (current_r >= self.r_be_trigger or (is_scalp and current_r >= 0.25)) and not rec.be_applied:
+        elif current_r >= self.r_be_trigger and not rec.be_applied:
             rec.state = PositionState.STATE_2_PROFITABLE
-            be_price = round(open_price + (risk_dist * self.r_be_lock), digits) if p_type == "BUY" else round(open_price - (risk_dist * self.r_be_lock), digits)
+            # Ensure the breakeven cushion is safely outside the broker's spread
+            min_cushion = 0.35 if "XAU" in symbol.upper() else (20.0 if "BTC" in symbol.upper() else 0.05)
+            effective_lock_dist = max(risk_dist * self.r_be_lock, min_cushion)
+            be_price = round(open_price + effective_lock_dist, digits) if p_type == "BUY" else round(open_price - effective_lock_dist, digits)
             if (p_type == "BUY" and be_price > current_sl) or (p_type == "SELL" and (current_sl == 0 or be_price < current_sl)):
                 rec.be_applied = True
-                return ExitDecision.LOCK_BREAKEVEN, be_price, f"BREAKEVEN_LOCK (+{current_r:.2f}R -> Moving SL to {be_price:.2f} [+0.1R buffer])"
+                return ExitDecision.LOCK_BREAKEVEN, be_price, f"BREAKEVEN_LOCK (+{current_r:.2f}R -> Moving SL to {be_price:.2f} [+{effective_lock_dist:.2f} cushion outside spread])"
 
         return ExitDecision.HOLD, None, "Within normal parameters"

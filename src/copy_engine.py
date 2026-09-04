@@ -14,6 +14,7 @@ Enforces:
 import logging
 import os
 import time
+import datetime
 import uuid
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple, Any
@@ -62,7 +63,7 @@ class CopyTradingEngine:
         self.max_follower_risk = float(self.copy_cfg.get("max_follower_risk_dollars", 0.50))
         self.hard_reject_risk = float(self.copy_cfg.get("hard_reject_risk_dollars", 1.00))
         self.max_spread_gold = int(self.copy_cfg.get("max_spread_points_gold", 320))
-        self.max_spread_btc = int(self.copy_cfg.get("max_spread_points_btc", 2500))
+        self.max_spread_btc = int(self.copy_cfg.get("max_spread_points_btc", 60000))
         self.slippage = int(self.copy_cfg.get("slippage_points", 30))
         
         self.sync_sl_tp = bool(self.copy_cfg.get("sync_sl_tp_modifications", True))
@@ -203,6 +204,23 @@ class CopyTradingEngine:
         executor = follower_acc.executor
         connector = follower_acc.connector
         risk_mgr = follower_acc.risk_manager
+
+        # Check Weekend Crypto Filter (Honor config settings)
+        if "BTC" in sym.upper():
+            symbols_cfg = self.config.get("symbols", {}) if hasattr(self, "config") and self.config else {}
+            risk_cfg = self.config.get("risk_management", {}) if hasattr(self, "config") and self.config else {}
+            block_crypto_weekends = (
+                symbols_cfg.get("block_crypto_on_weekends", False)
+                or not risk_cfg.get("crypto_weekend_trading_enabled", True)
+                or symbols_cfg.get("symbol_settings", {}).get("BTCUSD", {}).get("block_weekend_trading", False)
+            )
+            if block_crypto_weekends:
+                now_utc = datetime.datetime.now(datetime.timezone.utc)
+                if now_utc.weekday() in (5, 6):
+                    event.status = "REJECTED"
+                    event.rejection_reason = "WEEKEND CRYPTO FILTER: Bitcoin copying is strictly disabled on weekends (Saturday & Sunday UTC)."
+                    logger.warning(f"[{follower_acc.account_id.upper()}] [COPY REJECTED] {event.rejection_reason}")
+                    return False, event.rejection_reason
 
         # STEP 1: Confirm Account D is connected
         if not connector or not connector.is_connected():

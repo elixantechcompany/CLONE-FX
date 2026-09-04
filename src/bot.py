@@ -40,7 +40,7 @@ from src.connection_state import ConnectionState
 from src.execution import OrderExecutor, OrderPipelineAuditor, get_retcode_description
 from src.m1_scalper import M1Scalper
 from src.risk_manager import RiskManager
-from src.strategy import MusumaliStrategy
+from src.strategy import TwisterProStrategy
 from src.signal_ranker import SignalRanker, TradeCandidate
 from src.copy_engine import CopyTradingEngine, CopyEvent
 from src.notifier import Notifier
@@ -85,7 +85,7 @@ class GoldTradingBot:
         self.copy_engine = CopyTradingEngine(self.config, self.account_manager)
 
         # Shared Strategy Engines
-        self.musumali_strategy = MusumaliStrategy(self.config)
+        self.twister_strategy = TwisterProStrategy(self.config)
         self.m1_scalper = M1Scalper(self.config)
         self.signal_ranker = SignalRanker(self.config)
         self.notifier = Notifier(self.config)
@@ -154,6 +154,7 @@ class GoldTradingBot:
                     acc.connector,
                     account_id=acc.account_id,
                     account_type=acc.account_type,
+                    configured_balance=acc.initial_balance,
                 )
             if acc.executor is None:
                 acc.executor = OrderExecutor(
@@ -407,31 +408,43 @@ class GoldTradingBot:
             scan_symbols = self.active_broker_symbols
 
         for canonical, broker_sym in scan_symbols.items():
+            # Weekend Crypto Filter: Configurable Bitcoin scanning on weekends (Saturday & Sunday UTC)
+            if "BTC" in canonical.upper():
+                block_crypto_weekends = (
+                    self.config.get("symbols", {}).get("block_crypto_on_weekends", False)
+                    or not self.config.get("risk_management", {}).get("crypto_weekend_trading_enabled", True)
+                    or self.config.get("symbols", {}).get("symbol_settings", {}).get("BTCUSD", {}).get("block_weekend_trading", False)
+                )
+                now_utc = datetime.datetime.now(datetime.timezone.utc)
+                if block_crypto_weekends and now_utc.weekday() in (5, 6):
+                    continue
+
             try:
                 sym_info = mt5.symbol_info(broker_sym)
                 if sym_info is None:
                     continue
                 cur_spread = sym_info.spread
 
-                # Engine 1: Musumali Institutional Sweeps (M30, H1)
-                if self.musumali_strategy.strat_cfg.get("enabled", True):
-                    sig_m, entry_m, sl_m, tp_m, cid_m, zid_m, score_m, reason_m = self.musumali_strategy.generate_signal(
-                        broker_sym, traded_candle_ids=self.traded_candle_ids
+                # Engine 1: TwisterPro Scalper (5-Layer Precision Matrix)
+                if self.twister_strategy.enabled:
+                    tick_t = mt5.symbol_info_tick(broker_sym)
+                    sig_t, entry_t, sl_t, tp_t, cid_t, zid_t, score_t, reason_t = self.twister_strategy.generate_signal(
+                        broker_sym, traded_candle_ids=self.traded_candle_ids, current_spread=cur_spread, current_tick=tick_t
                     )
-                    if sig_m and cid_m and cid_m not in self.traded_candle_ids:
+                    if sig_t and cid_t and cid_t not in self.traded_candle_ids:
                         trade_candidates.append(TradeCandidate(
                             symbol=canonical,
-                            engine_name="Musumali_Sweep",
-                            magic=self.musumali_strategy.magic_number,
-                            direction=sig_m,
-                            entry=entry_m,
-                            sl=sl_m,
-                            tp=tp_m,
-                            candle_id=cid_m,
-                            zone_id=zid_m,
-                            base_quality_score=score_m,
-                            setup_reason=reason_m,
-                            timeframe="H1",
+                            engine_name="TwisterPro_Scalper",
+                            magic=self.twister_strategy.magic_number,
+                            direction=sig_t,
+                            entry=entry_t,
+                            sl=sl_t,
+                            tp=tp_t,
+                            candle_id=cid_t,
+                            zone_id=zid_t,
+                            base_quality_score=score_t,
+                            setup_reason=reason_t,
+                            timeframe=self.twister_strategy.timeframe_str,
                             spread=cur_spread,
                         ))
 
@@ -460,9 +473,9 @@ class GoldTradingBot:
                 # Periodic live scan visibility logging (every 10s)
                 if (now - getattr(self, "_last_scan_log_time", 0.0)) >= 10.0:
                     self._last_scan_log_time = now
-                    mus_status = f"{sig_m} (Score: {score_m})" if sig_m else f"Scanning ({reason_m})"
+                    twister_status = f"{sig_t} (Score: {score_t}/100)" if sig_t else f"Scanning ({reason_t})"
                     scalp_status = f"{sig_s} (Score: {score_s}/100)" if sig_s else f"Evaluating ({reason_s})"
-                    self.logger.info(f"[LIVE SCANNER] {canonical} ({broker_sym}) | Musumali: {mus_status} | Scalper: {scalp_status} | Spread: {cur_spread} pts")
+                    self.logger.info(f"[LIVE SCANNER] {canonical} ({broker_sym}) | TwisterPro: {twister_status} | Scalper: {scalp_status} | Spread: {cur_spread} pts")
             except Exception as e:
                 self.logger.warning(f"Market scanner cycle warning for {broker_sym}: {e}")
 
@@ -555,7 +568,9 @@ class GoldTradingBot:
                     # STAGE 7: SPREAD CHECK
                     sym_info = mt5.symbol_info(target_symbol)
                     cur_spread = sym_info.spread if sym_info else 9999
-                    max_spread = 2200 if "BTC" in target_symbol.upper() else 320
+                    sym_key = "BTCUSD" if "BTC" in target_symbol.upper() else "XAUUSD"
+                    sym_sett = self.config.get("symbols", {}).get("symbol_settings", {}).get(sym_key, {})
+                    max_spread = sym_sett.get("max_spread_points", 60000 if "BTC" in target_symbol.upper() else 320)
                     if cur_spread <= max_spread:
                         stages[7] = (True, f"Spread {cur_spread} pts <= max {max_spread} pts")
                     else:
@@ -587,6 +602,16 @@ class GoldTradingBot:
                     sl_dist = abs(cand.entry - cand.sl)
                     tp_dist = abs(cand.tp - cand.entry)
                     live_entry = tick.ask if cand.direction == "BUY" else tick.bid
+
+                    # NO-CHASE GUARD: Strictly reject if market has drifted away from signal setup
+                    max_allowed_chase = 80.0 if "BTC" in target_symbol.upper() else 0.40
+                    drift = abs(live_entry - cand.entry)
+                    if drift > max_allowed_chase:
+                        stages[3] = (False, f"Price drift ${drift:.2f} > max allowed ${max_allowed_chase:.2f} (Adverse chase prevented)")
+                        acc.record_candidate_audit(cand_dict, "SIGNAL_REJECTED", 3, stages[3][1])
+                        self.logger.info(OrderPipelineAuditor.format_audit_log(acc.account_id, cand.candle_id, cand.engine_name, target_symbol, cand.direction, int(cand.conviction_score), stages, "SIGNAL_REJECTED", stages[3][1]))
+                        continue
+
                     acc_sl = round(live_entry - sl_dist, digits) if cand.direction == "BUY" else round(live_entry + sl_dist, digits)
                     acc_tp = round(live_entry + tp_dist, digits) if cand.direction == "BUY" else round(live_entry - tp_dist, digits)
 

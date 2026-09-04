@@ -62,11 +62,11 @@ accounts:
   enabled: true
   multi_account_mode: true
   account_list:
-    # ACCOUNT A: $1,000 BrightFunded - User's Account (Independent, Shared Strategy, No Copy)
+    # ACCOUNT A: $100 Exness Account - User's Main Account (Independent, Shared Strategy, Zero Copy)
     - id: "account_a"
-      name: "BrightFunded Account A (My Account)"
-      type: "BRIGHTFUNDED"
-      balance: 1000.0
+      name: "Exness Account A (My Account)"
+      type: "PERSONAL"
+      balance: 100.0
       mode: "INDEPENDENT"
       copy_enabled: false
       env_login_var: "ACCOUNT_A_LOGIN"
@@ -94,11 +94,11 @@ accounts:
       fallback_server_var: "ACCOUNT_2_SERVER"
       is_active: false
 
-    # ACCOUNT C: $20 Personal Account - Copy Master (Shared Strategy, Generates Copy Events for D)
+    # ACCOUNT C: $10 Personal Account - Copy Master (Shared Strategy, Generates Copy Events for D)
     - id: "account_c"
-      name: "Personal Account C ($20 Master)"
+      name: "Personal Account C ($10 Master)"
       type: "PERSONAL"
-      balance: 20.0
+      balance: 10.0
       mode: "COPY_MASTER"
       copy_enabled: true
       env_login_var: "ACCOUNT_C_LOGIN"
@@ -110,13 +110,14 @@ accounts:
       fallback_server_var: "ACCOUNT_3_SERVER"
       is_active: true
 
-    # ACCOUNT D: $20 Personal Account (FBS Markets) -> Independent Micro Trading
+    # ACCOUNT D: $1,000 Personal Account (FBS Markets) -> Copy Follower (C -> D Only)
     - id: "account_d"
-      name: "Personal Account D ($20 FBS)"
+      name: "Personal Account D ($1000 FBS)"
       type: "PERSONAL"
-      balance: 20.0
-      mode: "INDEPENDENT"
-      copy_enabled: false
+      balance: 1000.0
+      mode: "COPY_FOLLOWER"
+      copy_enabled: true
+      copy_source: "account_c"
       env_login_var: "ACCOUNT_D_LOGIN"
       env_password_var: "ACCOUNT_D_PASSWORD"
       env_server_var: "ACCOUNT_D_SERVER"
@@ -136,7 +137,7 @@ copy_engine:
   max_follower_risk_dollars: 0.50      # Sizing & risk ceiling on follower ($0.50)
   hard_reject_risk_dollars: 1.00       # Reject copy if min volume loss exceeds $1.00
   max_spread_points_gold: 320
-  max_spread_points_btc: 2500
+  max_spread_points_btc: 60000
   slippage_points: 30
   sync_sl_tp_modifications: true       # Mirror SL and TP adjustments
   sync_partial_closes: true            # Mirror partial closes
@@ -158,50 +159,80 @@ circuit_breakers:
 # ==============================================================================
 symbols:
   active_symbols: ["XAUUSD", "BTCUSD"]
+  block_crypto_on_weekends: false       # Allow Bitcoin/Crypto trading on weekends (Saturday & Sunday UTC)
   symbol_settings:
     XAUUSD:
       candidates: ["XAU/USD", "XAUUSDm", "XAUUSD", "XAUUSD_i", "XAUUSDz", "GOLD"]
       asset_type: "COMMODITY_GOLD"
       max_spread_points: 320
       atr_period: 14
-      min_sl_distance_dollars: 0.40
-      max_sl_distance_dollars: 3.50
+      min_sl_distance_dollars: 1.00
+      max_sl_distance_dollars: 2.00   # Hard ceiling for scalper Stop Loss ($2.00 on Gold)
       zone_band_points: 2.0
       risk_multiplier: 1.0
-      scalp_min_sl_dollars: 0.40
-      scalp_max_sl_dollars: 2.80
+      scalp_min_sl_dollars: 1.00
+      scalp_max_sl_dollars: 1.80
     BTCUSD:
       candidates: ["BTC/USD", "#BTCUSD", "BTCUSD", "BTCUSDm", "BTCUSD_i", "BTCUSDz", "BITCOIN", "BTC"]
       asset_type: "CRYPTO_BITCOIN"
+      block_weekend_trading: false      # Allow weekend trading on Bitcoin
       max_spread_points: 60000        # Crypto spread tolerance in points (handles 3-digit brokers)
       atr_period: 14
-      min_sl_distance_dollars: 100.00 # BTC volatility floor
-      max_sl_distance_dollars: 350.00
+      min_sl_distance_dollars: 60.00  # BTC volatility floor
+      max_sl_distance_dollars: 100.00 # BTC volatility ceiling ($100 max reasonable SL)
       zone_band_points: 100.0
       risk_multiplier: 1.0
-      scalp_min_sl_dollars: 80.00
-      scalp_max_sl_dollars: 280.00
+      scalp_min_sl_dollars: 60.00
+      scalp_max_sl_dollars: 90.00
+      scalp_min_tp_dollars: 180.00     # 1:3.0 R:R Target on Bitcoin ($180 target on $60 risk)
+      scalp_max_tp_dollars: 270.00     # 1:3.0 R:R Target on Bitcoin ($270 target on $90 risk)
 
 # ==============================================================================
-# 6. ENGINE 1: Musumali Institutional Liquidity Sweeps (M30, H1, H4, D1) [Magic: 2001]
+# 6. ENGINE 1: TWISTERPRO PRECISION SCALPER (M5 MATRIX) [Magic: 2001]
 # ==============================================================================
-musumali_strategy:
+twister_strategy:
   enabled: true
   signal_only_mode: false             # Live Order Execution enabled
-  magic_number: 2001                  # Unique Magic Number for Musumali_Sweep
-  timeframes: ["M30", "H1", "H4"]     # Primary M30/H1 with H4 context
-  cluster_search_bars: 15
-  min_rejection_wick_pct: 0.15        # 15% wick rejection
-  risk_reward_ratio: 2.5              # 1:2.5 Risk to Reward Target
-  atr_period: 14                      # 14-period ATR on execution timeframe
-  atr_sl_multiplier: 1.5              # 1.5x ATR stop-loss distance
+  magic_number: 2001                  # Unique Magic Number for TwisterPro_Scalper
+  mode: "MODE_1"                      # MODE_1 (High Conviction), MODE_2 (Short SL), MODE_3 (3-Phase Trail)
+  timeframe: "M5"                     # Fast M5 Execution Timeframe (Ultra-Precise Scalping)
+  min_quality_score: 80               # High-Conviction threshold (>= 80/100)
   
-  # Higher-Timeframe Bias
-  htf_timeframe: "H1"
-  require_htf_alignment: true         # Strict HTF alignment required
-  htf_fast_ema: 20
-  htf_slow_ema: 50
-  htf_trend_ema: 200
+  # Layer 1: Trend & Momentum Filter
+  fast_ema: 9
+  mid_ema: 21
+  slow_ema: 50
+  rsi_period: 14
+  rsi_buy_min: 48.0
+  rsi_buy_max: 72.0
+  rsi_sell_min: 28.0
+  rsi_sell_max: 52.0
+
+  # Layer 2: Micro-Structure Key Level Breakout & Pullback Rejection
+  swing_lookback_bars: 8              # 8 bars (40 mins on M5)
+  min_rejection_wick_pct: 0.15
+
+  # Layer 3: Dynamic Volatility & Scalper Bounds
+  atr_period: 14
+  atr_min_points: 0.40                # Minimum volatility floor
+  max_candle_atr_ratio: 2.5           # Avoid entering into high-slippage news spikes
+  atr_sl_multiplier: 1.0              # Tight 1.0x M5 ATR SL ($1.00 - $1.80)
+  atr_tp_multiplier: 3.0              # Golden 3.0x M5 ATR TP -> Exact 1:3.0 Risk-to-Reward Ratio!
+  atr_sl_multiplier_mode2: 0.8        # Mode 2: 0.8x ATR SL
+  atr_tp_multiplier_mode2: 2.4        # Mode 2: 2.4x ATR TP (1:3.0)
+  scalp_min_sl_dollars: 1.00          # Min $1.00 SL on Gold
+  scalp_max_sl_dollars: 1.80          # Max $1.80 SL on Gold
+  scalp_min_tp_dollars: 3.00          # Min $3.00 TP on Gold (guarantees >= 1:3.0 on min SL)
+  scalp_max_tp_dollars: 5.40          # Max $5.40 TP on Gold (guarantees >= 1:3.0 on max SL)
+  max_chase_dollars: 0.35             # NO-CHASE: Reject entry if price drifted > 35 cents from signal
+
+  # Layer 4: Session Filter
+  session_filter_enabled: false       # Active testing before weekend close
+  session_start_hour_utc: 0
+  session_end_hour_utc: 24
+
+  # Layer 5: Spread & Execution Gate
+  max_spread_points: 320              # Max broker spread tolerance for Gold (standard ~260 pts)
 
 # ==============================================================================
 # 7. LIQUIDITY ZONE COOLDOWN
@@ -212,7 +243,7 @@ zone_management:
   zone_cooldown_minutes: 15
 
 # ==============================================================================
-# 8. ENGINE 2: HIGH-CONVICTION MICRO-SCALPER (M1, M5, M15) [Magic: 1001]
+# 8. ENGINE 2: HIGH-CONVICTION MICRO-SCALPER (M1, M5) [Magic: 1001]
 # ==============================================================================
 m1_scalper:
   enabled: true
@@ -223,37 +254,38 @@ m1_scalper:
   trend_ema_period: 20
   trend_slope_bars: 3
   magic_number: 1001                  # Unique Magic Number for M1_Scalp
-  timeframes: ["M1", "M5", "M15"]     # Active multi-timeframe micro-scalping (M1, M5, M15)
-  min_quality_score: 80               # High-Conviction Quality Score Threshold (>= 80)
+  timeframes: ["M5"]                  # Active micro-scalping (M5 clean signals, M1 noise eliminated)
+  min_quality_score: 80               # Conviction Quality Score Threshold (>= 80)
   max_concurrent_scalp: 1             # Max 1 active scalper position per account
   fast_ema: 7
   slow_ema: 16
   sweep_lookback_bars: 8
   atr_period: 14
-  atr_sl_multiplier: 1.5
-  risk_reward_ratio: 2.5
+  atr_sl_multiplier: 1.0              # 1.0x ATR SL
+  risk_reward_ratio: 3.0              # Institutional 1:3.0 Profitable Risk-to-Reward Target
+
 
 # ==============================================================================
 # 9. INTELLIGENT POSITION MANAGEMENT & PROFIT RETENTION
 # ==============================================================================
 profit_management:
   enabled: true
-  dollar_step_lock_enabled: true      # $1.00 Step-Trailing Stop Loss
-  step_trigger_dollars: 1.00          # Initial breakeven + protection lock at +$1.00 profit
-  step_size_dollars: 1.00             # Advances SL every +$1.00 added in profit (+1, +2, +3, +4...)
-  breakeven_buffer_dollars: 0.10      # Spread/commission positive buffer (+0.10)
+  dollar_step_lock_enabled: false     # Disabled premature micro step-lock that chokes trades inside spread
+  step_trigger_dollars: 2.00          # Higher threshold if re-enabled
+  step_size_dollars: 1.00
+  breakeven_buffer_dollars: 0.35      # Spread/commission positive buffer
   
   # Agile R-Multiple Dynamic Profit-Lock Stages (1R = Initial Monetary Risk)
-  breakeven_trigger_r: 0.35           # At +0.35R -> Move SL to Breakeven (+0.05R buffer)
-  breakeven_lock_r: 0.05              # Guaranteed green buffer (+0.05R)
-  tier1_protect_trigger_r: 0.80       # At +0.80R -> Lock in +0.40R profit
-  tier1_protect_lock_r: 0.40
-  tier2_protect_trigger_r: 1.20       # At +1.20R -> Lock in +0.80R profit
-  tier2_protect_lock_r: 0.80
-  tier3_protect_trigger_r: 1.60       # At +1.60R -> Lock in +1.20R profit
-  tier3_protect_lock_r: 1.20
-  tier4_protect_trigger_r: 2.20       # At +2.20R+ -> Structure-based runner trailing (+1.70R locked)
-  tier4_protect_lock_r: 1.70
+  breakeven_trigger_r: 1.20           # Move SL to Breakeven after reaching +1.20R expansion
+  breakeven_lock_r: 0.20              # Guaranteed green buffer (+0.20R outside spread)
+  tier1_protect_trigger_r: 1.80       # At +1.80R -> Lock in +1.00R profit
+  tier1_protect_lock_r: 1.00
+  tier2_protect_trigger_r: 2.40       # At +2.40R -> Lock in +1.60R profit
+  tier2_protect_lock_r: 1.60
+  tier3_protect_trigger_r: 3.00       # At +3.00R -> Lock in +2.20R profit / Full TP Target
+  tier3_protect_lock_r: 2.20
+  tier4_protect_trigger_r: 3.50       # At +3.50R+ -> Structure-based runner trailing (+2.80R locked)
+  tier4_protect_lock_r: 2.80
   
   # Multi-Signal Confirmed Reversal & Maturation Thresholds
   reversal_exit_threshold: 80         # Strict multi-signal agreement required (Score >= 80)
@@ -263,8 +295,8 @@ profit_management:
   continuation_strong_threshold: 60   # Continuation Score >= 60 -> Let runners breathe
   
   # Dynamic Volatility-Aware Giveback & Peak R Decay
-  giveback_min_peak_r: 0.70           # Giveback protection activates once trade touches >= +0.70R peak
-  giveback_max_r_decay: 0.30          # Bank profit if trade rolls back >0.30R from peak (locks >= +0.40R)
+  giveback_min_peak_r: 1.50           # Giveback protection activates strictly once trade touches >= +1.50R peak
+  giveback_max_r_decay: 0.50          # Bank profit if trade rolls back >= 0.50R from peak (locks >= +1.00R)
   
   # Stale Trade Failure Timeout (Bars Held without progress)
   scalp_timeout_bars: 15              # Close stagnating M1 micro-scalps after 15 bars
@@ -272,8 +304,8 @@ profit_management:
   
   # Dynamic Continuous Trailing Stop
   trailing_enabled: true
-  trailing_trigger_r: 1.40            # Continuous ATR trailing begins at +1.40R
-  trailing_distance_r: 0.60           # 0.60R trailing distance buffer
+  trailing_trigger_r: 2.00            # Continuous ATR trailing begins at +2.00R
+  trailing_distance_r: 0.70           # 0.70R trailing distance buffer
 
 # ==============================================================================
 # 10. HARMONY & CONCURRENCY LIMITS (PER ACCOUNT)
@@ -285,7 +317,7 @@ harmony_rules:
   max_musumali_positions: 1           # Max 1 Musumali trade per account
   max_scalper_positions: 1            # Max 1 Scalper trade per account
   max_positions_per_symbol: 1         # Max 1 open position per symbol per account
-  cooldown_seconds_per_trade: 45      # 45-second agile spacing between trades
+  cooldown_seconds_per_trade: 180     # 3-minute agile spacing between trades (prevent chop re-entries)
 
 # ==============================================================================
 # 11. RISK MANAGEMENT & SIZING ENGINE (SHARED LOGIC, ISOLATED STATE)
@@ -293,6 +325,7 @@ harmony_rules:
 risk_management:
   lot_mode: "dynamic_risk"            # STRICTLY DYNAMIC: Never fixed lots
   risk_per_trade_percent: 0.25        # Base 0.25% ($2.50 per trade on $1,000)
+  crypto_weekend_trading_enabled: true # Allow Bitcoin/Crypto trading on weekends
   max_daily_trades: 100               # High ceiling so the bot can capture all high-conviction trades
   max_consecutive_losses: 3           # Max 3 consecutive losses before cooldown
   loss_cooldown_minutes: 15           # 15-minute cooldown on 3 losses

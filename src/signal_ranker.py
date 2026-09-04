@@ -60,15 +60,15 @@ class SignalRanker:
             else:
                 score += 10.0
 
-            # Timeframe Seniority (HTF setups receive higher institutional weighting)
-            if cand.timeframe in ("H1", "H4"):
+            # Timeframe Weighting: Prioritize agile micro-scalping execution (M1, M5)
+            if cand.timeframe in ("M1", "M5"):
                 score += 15.0
-            elif cand.timeframe in ("M30", "M15"):
+            elif cand.timeframe == "M15":
                 score += 12.0
-            elif cand.timeframe == "M5":
-                score += 10.0
+            elif cand.timeframe in ("M30", "H1"):
+                score += 8.0
             else:
-                score += 7.0
+                score += 5.0
 
             # Spread Quality
             is_btc = "BTC" in cand.symbol.upper()

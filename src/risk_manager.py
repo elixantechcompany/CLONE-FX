@@ -30,7 +30,14 @@ logger = logging.getLogger("GoldBot.RiskManager")
 
 
 class RiskManager:
-    def __init__(self, config: dict, connector, account_id: str = "account_a", account_type: Optional[str] = None):
+    def __init__(
+        self,
+        config: dict,
+        connector,
+        account_id: str = "account_a",
+        account_type: Optional[str] = None,
+        configured_balance: float = 0.0,
+    ):
         self.config = config
         self.account_id = account_id.lower()
         self.connector = connector
@@ -40,7 +47,8 @@ class RiskManager:
         matched = [a for a in acc_list if str(a.get("id", "")).lower() == self.account_id]
         if matched:
             self.account_type = account_type.upper() if account_type else matched[0].get("type", "BRIGHTFUNDED").upper()
-            configured_balance = float(matched[0].get("balance", 0.0))
+            if configured_balance <= 0.0:
+                configured_balance = float(matched[0].get("balance", 0.0))
         else:
             self.account_type = account_type.upper() if account_type else "BRIGHTFUNDED"
             configured_balance = 0.0
@@ -60,18 +68,22 @@ class RiskManager:
             self.firm_daily_limit = float(self.personal_cfg.get("daily_drawdown_limit_dollars", 6.0))
             self.firm_trailing_limit = float(self.personal_cfg.get("daily_drawdown_limit_dollars", 8.0))
 
-            self.daily_warning_loss = 3.00
-            self.daily_reduced_risk_loss = 4.50
-            self.daily_hard_stop_loss = float(self.personal_cfg.get("daily_drawdown_limit_dollars", 6.00))
+            base_daily_stop = float(self.personal_cfg.get("daily_drawdown_limit_dollars", 6.00))
+            self.daily_hard_stop_loss = max(base_daily_stop, default_size * 0.20) if default_size > 30.0 else base_daily_stop
+            self.daily_warning_loss = self.daily_hard_stop_loss * 0.50
+            self.daily_reduced_risk_loss = self.daily_hard_stop_loss * 0.75
 
-            self.trailing_warning_drawdown = 4.00
-            self.trailing_reduced_risk_drawdown = 6.00
-            self.trailing_hard_stop_drawdown = 8.00
+            base_trailing_stop = 8.00
+            self.trailing_hard_stop_drawdown = max(base_trailing_stop, default_size * 0.25) if default_size > 30.0 else base_trailing_stop
+            self.trailing_warning_drawdown = self.trailing_hard_stop_drawdown * 0.50
+            self.trailing_reduced_risk_drawdown = self.trailing_hard_stop_drawdown * 0.75
 
-            self.max_single_trade_risk = float(self.personal_cfg.get("max_single_trade_risk_dollars", 2.50))
-            self.preferred_risk_min = float(self.personal_cfg.get("preferred_risk_min_dollars", 1.50))
-            self.preferred_risk_max = float(self.personal_cfg.get("preferred_risk_max_dollars", 2.50))
-            self.single_trade_hard_reject = float(self.personal_cfg.get("single_trade_hard_reject_dollars", 3.50))
+            base_risk = float(self.personal_cfg.get("max_single_trade_risk_dollars", 3.50))
+            base_reject = float(self.personal_cfg.get("single_trade_hard_reject_dollars", 4.50))
+            self.max_single_trade_risk = base_risk
+            self.preferred_risk_min = float(self.personal_cfg.get("preferred_risk_min_dollars", 1.00))
+            self.preferred_risk_max = float(self.personal_cfg.get("preferred_risk_max_dollars", 3.00))
+            self.single_trade_hard_reject = base_reject
 
             self.profit_protect_trigger = 10.00
             self.profit_high_selectivity_trigger = 20.00
@@ -175,7 +187,11 @@ class RiskManager:
             if os.path.exists(self.hwm_file):
                 with open(self.hwm_file, "r") as f:
                     data = json.load(f)
-                    self.lifetime_high_water_equity = max(self.initial_account_size, float(data.get("lifetime_hwm", self.initial_account_size)))
+                    loaded_hwm = float(data.get("lifetime_hwm", self.initial_account_size))
+                    # Sanity check: If account is PERSONAL and loaded_hwm is drastically larger than initial size, clamp to initial size
+                    if self.is_personal and loaded_hwm > (self.initial_account_size * 1.50):
+                        loaded_hwm = self.initial_account_size
+                    self.lifetime_high_water_equity = max(self.initial_account_size, loaded_hwm)
         except Exception:
             self.lifetime_high_water_equity = self.initial_account_size
 
@@ -265,8 +281,8 @@ class RiskManager:
         self.exit_reason_stats[clean_reason]["profit"] += profit
         self.exit_reason_stats[clean_reason]["captured_r"] += captured_r
 
-        loss_threshold = -0.25 if self.account_type == "BRIGHTFUNDED" else -0.05
-        win_threshold = 0.10 if self.account_type == "BRIGHTFUNDED" else 0.05
+        loss_threshold = -0.25 if self.account_type == "BRIGHTFUNDED" else -0.15
+        win_threshold = 1.50 if self.account_type == "BRIGHTFUNDED" else 0.50
 
         if profit < loss_threshold:
             # Loss recorded
@@ -296,8 +312,8 @@ class RiskManager:
                 self.symbol_cooldown_until[sym_key] = expiry
                 logger.warning(f"[{self.account_id.upper()}] Symbol {sym_key} paused for {self.cl_cooldown_seconds/60:.0f}m cooldown.")
 
-        elif profit > win_threshold:
-            # Win recorded
+        elif profit >= win_threshold:
+            # Substantial Win recorded (proves market alignment)
             self.last_trade_was_loss = False
             self.account_consecutive_losses = 0
             self.engine_consecutive_losses[m_key] = 0
@@ -305,6 +321,11 @@ class RiskManager:
             if zone_id is not None and zone_id in self.zone_failures:
                 self.zone_failures[zone_id] = max(0, self.zone_failures[zone_id] - 1)
             logger.info(f"[{self.account_id.upper()}] Trade Win: +${profit:.2f} ({sym_key}, Magic #{m_key}) -> Consecutive losses reset.")
+        else:
+            logger.info(
+                f"[{self.account_id.upper()}] Trade Scratch/BE: ${profit:.2f} ({sym_key}, Magic #{m_key}) | "
+                f"Loss counter preserved at {self.account_consecutive_losses}"
+            )
 
     def is_engine_in_cooldown(self, magic: int) -> Tuple[bool, str]:
         expiry = self.engine_cooldown_until.get(magic, 0.0)
@@ -694,7 +715,9 @@ class RiskManager:
 
         # 16. Spread check
         if spec:
-            max_spread = self.symbols_cfg.get("symbol_settings", {}).get(symbol, {}).get("max_spread_points", 320)
+            canonical_key = "BTCUSD" if "BTC" in symbol.upper() else "XAUUSD"
+            sym_settings = self.symbols_cfg.get("symbol_settings", {}).get(symbol) or self.symbols_cfg.get("symbol_settings", {}).get(canonical_key, {})
+            max_spread = sym_settings.get("max_spread_points", 60000 if "BTC" in symbol.upper() else 320)
             if spec.spread > max_spread:
                 failures.append(f"Check 16 Fail: Current spread {spec.spread} exceeds limit {max_spread}")
 
@@ -712,6 +735,16 @@ class RiskManager:
         session_allowed = self.is_session_allowed()
         if not session_allowed:
             failures.append(f"Check 19 Fail: Current session not in allowed trading sessions list")
+
+        # 19b. Weekend Crypto Trading Block (Configurable)
+        if "BTC" in symbol.upper():
+            block_crypto_weekends = (
+                not self.risk_config.get("crypto_weekend_trading_enabled", True)
+                or self.symbols_cfg.get("block_crypto_on_weekends", False)
+                or self.symbols_cfg.get("symbol_settings", {}).get("BTCUSD", {}).get("block_weekend_trading", False)
+            )
+            if block_crypto_weekends and self.is_crypto_weekend():
+                failures.append(f"Check 19b Fail: Bitcoin trading is strictly disabled on weekends (Saturday & Sunday UTC)")
 
         # 20. Exact Monetary Risk & Hard Reject Ceiling
         expected_monetary_loss = self.calculate_monetary_loss(symbol, entry_price, stop_loss_price, volume)
@@ -753,6 +786,15 @@ class RiskManager:
         else:
             return "Late Asian/Off-Hours"
 
+    def is_crypto_weekend(self, now_utc: Optional[datetime.datetime] = None) -> bool:
+        """
+        Determines if current UTC time is during a weekend (Saturday or Sunday).
+        Saturday (weekday 5) and Sunday (weekday 6) UTC are strictly blocked for Bitcoin trading.
+        """
+        if now_utc is None:
+            now_utc = datetime.datetime.now(datetime.timezone.utc)
+        return now_utc.weekday() in (5, 6)
+
     def get_circuit_breaker_status(self, equity: float) -> str:
         """Returns diagnostic status string."""
         net_pnl = equity - self.daily_start_equity
@@ -783,13 +825,13 @@ class RiskManager:
         session_data = tuning_cfg.get(cur_session, {
             "quality_score_threshold": 50,
             "max_spread_points_xau": 320,
-            "max_spread_points_btc": 2500,
+            "max_spread_points_btc": 60000,
         })
         return {
             "session": cur_session,
             "quality_score_threshold": session_data.get("quality_score_threshold", 50),
             "max_spread_points": session_data.get("max_spread_points_xau", 320),
             "max_spread_points_xau": session_data.get("max_spread_points_xau", 320),
-            "max_spread_points_btc": session_data.get("max_spread_points_btc", 2500),
+            "max_spread_points_btc": session_data.get("max_spread_points_btc", 60000),
         }
 

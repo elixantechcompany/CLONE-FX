@@ -121,12 +121,12 @@ class M1Scalper:
             if trend_ctx == "UPTREND":
                 s_trend = 30 if slope > 0.10 else 25
             elif trend_ctx == "NEUTRAL":
-                s_trend = 15
+                s_trend = 5
         elif sig == "SELL":
             if trend_ctx == "DOWNTREND":
                 s_trend = 30 if slope < -0.10 else 25
             elif trend_ctx == "NEUTRAL":
-                s_trend = 15
+                s_trend = 5
 
         s_mom = 0
         if sig == "BUY" and (40.0 <= rsi <= 68.0):
@@ -215,8 +215,8 @@ class M1Scalper:
             return None, 0.0, 0.0, 0.0, None, 0, ""
 
         sym_settings = self.get_symbol_settings(symbol)
-        min_sl = sym_settings.get("scalp_min_sl_dollars", 1.50 if "XAU" in symbol else 120.0)
-        max_sl = sym_settings.get("scalp_max_sl_dollars", 4.50 if "XAU" in symbol else 500.0)
+        min_sl = sym_settings.get("scalp_min_sl_dollars", 1.00 if "XAU" in symbol else 60.0)
+        max_sl = sym_settings.get("scalp_max_sl_dollars", 1.80 if "XAU" in symbol else 90.0)
 
         df["ema_fast"] = df["close"].ewm(span=self.fast_ema, adjust=False).mean()
         df["ema_slow"] = df["close"].ewm(span=self.slow_ema, adjust=False).mean()
@@ -279,9 +279,9 @@ class M1Scalper:
         # 1. BEARISH / SELL SETUP & CONFIRMATION
         # -----------------------------------------------------------------
         is_sell_trend = prev_bar["ema_fast"] <= prev_bar["ema_slow"]
-        valid_bear_pattern = (
+        valid_bear_pattern = is_sell_trend and (
             is_bear_breakout_closed or is_bear_pinbar or is_bear_engulfing or 
-            (is_sell_trend and is_bear_pullback) or is_bear_sweep
+            is_bear_pullback or is_bear_sweep
         )
 
         if valid_bear_pattern:
@@ -301,10 +301,10 @@ class M1Scalper:
                     symbol, tf_name, "SELL", trend_ctx, slope, rsi, vol_confirmed, pattern_lbl, current_spread, atr, quality_threshold
                 )
                 if passed:
-                    max_chase = max(atr * 1.0, 2.50 if "XAU" in symbol else 180.0)
+                    max_chase = min(atr * 0.50, 0.40 if "XAU" in symbol else 30.0)
                     chase_dist = prev_bar["close"] - tick.bid
                     # Disallow entries if price has drifted more than max_chase or moved above previous bar high (invalidated)
-                    if -1.00 <= chase_dist <= max_chase and tick.bid <= prev_bar["high"]:
+                    if -0.25 <= chase_dist <= max_chase and tick.bid <= prev_bar["high"]:
                         entry = tick.bid
                         stop_loss = round(entry + sl_dist, digits)
                         take_profit = round(entry - tp_dist, digits)
@@ -320,9 +320,9 @@ class M1Scalper:
         # 2. BULLISH / BUY SETUP & CONFIRMATION
         # -----------------------------------------------------------------
         is_buy_trend = prev_bar["ema_fast"] >= prev_bar["ema_slow"]
-        valid_bull_pattern = (
+        valid_bull_pattern = is_buy_trend and (
             is_bull_breakout_closed or is_bull_pinbar or is_bull_engulfing or 
-            (is_buy_trend and is_bull_pullback) or is_bull_sweep
+            is_bull_pullback or is_bull_sweep
         )
 
         if valid_bull_pattern:
@@ -342,10 +342,10 @@ class M1Scalper:
                     symbol, tf_name, "BUY", trend_ctx, slope, rsi, vol_confirmed, pattern_lbl, current_spread, atr, quality_threshold
                 )
                 if passed:
-                    max_chase = max(atr * 1.0, 2.50 if "XAU" in symbol else 180.0)
+                    max_chase = min(atr * 0.50, 0.40 if "XAU" in symbol else 30.0)
                     chase_dist = tick.ask - prev_bar["close"]
                     # Disallow entries if price has drifted more than max_chase or moved below previous bar low (invalidated)
-                    if -1.00 <= chase_dist <= max_chase and tick.ask >= prev_bar["low"]:
+                    if -0.25 <= chase_dist <= max_chase and tick.ask >= prev_bar["low"]:
                         entry = tick.ask
                         stop_loss = round(entry - sl_dist, digits)
                         take_profit = round(entry + tp_dist, digits)

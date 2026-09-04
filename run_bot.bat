@@ -1,13 +1,13 @@
 @echo off
-title Multi-Account Bot Engine (4 Accounts | Dual Engines XAUUSD & BTCUSD)
+title Multi-Account Bot Engine (TwisterPro M15 & Micro-Scalper)
 echo ===================================================================
-echo   MULTI-ACCOUNT INSTITUTIONAL TRADING ENGINE
-echo   - Account A: $1,000 BrightFunded (Independent, Target +$100, Stop -$25)
-echo   - Account B: $1,000 BrightFunded (Independent, Target +$100, Stop -$25)
-echo   - Account C: $20.00 Personal Account (Copy Master, Stop -$3)
-echo   - Account D: $20.00 Personal Account (Copy Follower, 8-Step Safety)
-echo   - Shared Strategies: Musumali Sweeps (2001) & Agile Micro-Scalper (1001)
-echo   - Dual Symbols: Gold (XAUUSD) & Bitcoin (BTCUSD)
+echo   MULTI-ACCOUNT PRECISION TRADING ENGINE
+echo   - Account A: $100 Exness Account (Personal Independent)
+echo   - Account C: $10 HFMarkets Account (Copy Master)
+echo   - Account D: $1,000 FBS Account (Copy Follower C -> D)
+echo   - Engine 1: TwisterPro M15 Scalper (Magic: 2001 - 5-Layer Validation)
+echo   - Engine 2: Agile Micro-Scalper (Magic: 1001 - M1/M5)
+echo   - Symbols: Gold (XAUUSDm) & Bitcoin (BTCUSDm - Weekday only)
 echo ===================================================================
 echo.
 

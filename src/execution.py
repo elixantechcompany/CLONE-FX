@@ -139,6 +139,7 @@ class FinalEntryGate:
     def __init__(self, executor):
         self.executor = executor
         self.account_id = executor.account_id
+        self.config = getattr(executor, "config", {})
 
     def evaluate_final_gate(
         self,
@@ -194,7 +195,9 @@ class FinalEntryGate:
         info = mt5.symbol_info(symbol)
         if info is not None:
             cur_spread = info.spread
-            max_spread = 2200 if "BTC" in symbol.upper() else 320
+            sym_key = "BTCUSD" if "BTC" in symbol.upper() else "XAUUSD"
+            sym_sett = self.config.get("symbols", {}).get("symbol_settings", {}).get(sym_key, {})
+            max_spread = sym_sett.get("max_spread_points", 60000 if "BTC" in symbol.upper() else 320)
             if cur_spread > max_spread:
                 reason = f"ENTRY_REJECTED: SPREAD_TOO_HIGH (Current {cur_spread} > Max {max_spread} pts)"
                 logger.warning(f"[{self.account_id.upper()}] [FINAL GATE REJECTED] {reason}")
@@ -606,9 +609,27 @@ class OrderExecutor:
 
         info = mt5.symbol_info(symbol)
         digits = info.digits if info else 2
+        point = info.point if (info and info.point > 0) else (0.01 if "XAU" in symbol else 1.0)
+        stops_level = getattr(info, "trade_stops_level", getattr(info, "stops_level", 0)) * point
 
         sl_val = round(new_sl, digits) if new_sl > 0 else 0.0
         tp_val = round(new_tp, digits) if new_tp > 0 else 0.0
+
+        # Validate against broker minimum stops_level distance from current market price
+        if sl_val > 0 and stops_level > 0:
+            tick = mt5.symbol_info_tick(symbol)
+            if tick is not None:
+                positions = mt5.positions_get(ticket=ticket)
+                if positions and len(positions) > 0:
+                    pos = positions[0]
+                    if pos.type == mt5.ORDER_TYPE_BUY:
+                        max_allowed_sl = round(tick.bid - stops_level, digits)
+                        if sl_val > max_allowed_sl:
+                            sl_val = max_allowed_sl
+                    elif pos.type == mt5.ORDER_TYPE_SELL:
+                        min_allowed_sl = round(tick.ask + stops_level, digits)
+                        if sl_val < min_allowed_sl:
+                            sl_val = min_allowed_sl
 
         request = {
             "action": mt5.TRADE_ACTION_SLTP,
@@ -628,6 +649,11 @@ class OrderExecutor:
                 logger.warning(f"[{self.account_id.upper()}] Failed to update SL/TP on #{ticket} [{retcode}]: {err}")
             return False
 
+        if ticket in self.known_tickets:
+            self.known_tickets[ticket]["sl"] = sl_val
+            if tp_val > 0:
+                self.known_tickets[ticket]["tp"] = tp_val
+
         logger.info(f"[{self.account_id.upper()}] [BREAKEVEN / SL UPDATED] Successfully modified Ticket #{ticket} ({symbol}) -> New SL: {sl_val:.2f}, New TP: {tp_val:.2f}")
 
         # Emit SL/TP modification event
@@ -640,7 +666,7 @@ class OrderExecutor:
         return True
 
     def partial_close_position(self, ticket: int, symbol: str, close_volume: float, reason: str = "Partial Exit") -> bool:
-        """Closes a portion of an open position."""
+        """Closes a portion of an open position and locks remaining profits."""
         if self.connector:
             valid, msg = self.connector.verify_pre_trade_identity(symbol=symbol, require_algo_on=False)
             if not valid:
@@ -698,12 +724,30 @@ class OrderExecutor:
                 logger.error(f"[{self.account_id.upper()}] Failed partial close on #{ticket} [{retcode}]: {err}")
             return False
 
-        logger.info(f"[{self.account_id.upper()}] PARTIAL CLOSE Ticket #{ticket} ({symbol} {close_volume} lots) | Reason: {reason}")
+        remaining_vol = round(pos.volume - float(close_volume), 2)
+        if ticket in self.known_tickets:
+            self.known_tickets[ticket]["volume"] = remaining_vol
+        self.exit_engine.update_position_volume(ticket, remaining_vol)
+
+        logger.info(f"[{self.account_id.upper()}] PARTIAL CLOSE Ticket #{ticket} ({symbol} {close_volume} lots closed, {remaining_vol} lots remaining) | Reason: {reason}")
+
+        # Automatically advance SL of remaining position to at least Breakeven + buffer if not already protected
+        open_price = pos.price_open
+        rec = self.exit_engine.records.get(ticket)
+        digits = info.digits if info else 2
+        if rec and not rec.be_applied:
+            risk_dist = rec.initial_risk_dist
+            be_sl = round(open_price + (risk_dist * self.exit_engine.r_be_lock), digits) if pos.type == mt5.ORDER_TYPE_BUY else round(open_price - (risk_dist * self.exit_engine.r_be_lock), digits)
+            if (pos.type == mt5.ORDER_TYPE_BUY and be_sl > pos.sl) or (pos.type == mt5.ORDER_TYPE_SELL and (pos.sl == 0 or be_sl < pos.sl)):
+                logger.info(f"[{self.account_id.upper()}] [PARTIAL CLOSE SL LOCK] Advancing remaining volume SL to Breakeven @ {be_sl:.2f}")
+                self.update_sl_tp(ticket, symbol, be_sl, pos.tp)
+                rec.be_applied = True
 
         self._emit_event("PARTIAL_CLOSE", {
             "ticket": ticket,
             "symbol": symbol,
             "partial_volume": close_volume,
+            "remaining_volume": remaining_vol,
             "reason": reason,
         })
         return True

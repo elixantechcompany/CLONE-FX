@@ -1,11 +1,6 @@
 """
-High-Conviction Musumali Strategy Engine (Multi-Symbol: XAUUSD & BTCUSD)
-Engine 1 [Magic: 2001]
-Enforces:
-  1. Higher Timeframe (H4 / D1) Trend & Structural Bias.
-  2. 4-Stage Entry Filter Funnel Instrumentation (Zones -> Sweeps -> Musumali Candle -> Confirmed Break Entry).
-  3. Precision Institutional Liquidity Sweep & Reclaim Scanner: M30, H1.
-  4. Timeframe Isolation: M30/H1 sweeps with H4 context (M1 noise never affects Musumali).
+Primary Strategy Engine (Multi-Symbol: XAUUSD & BTCUSD)
+Engine 1 [Magic: 2001]: TwisterPro M15 Scalper Strategy (5-Layer Validation Matrix)
 """
 
 import datetime
@@ -15,7 +10,9 @@ from typing import Dict, List, Optional, Tuple, Any
 import MetaTrader5 as mt5
 import pandas as pd
 
-logger = logging.getLogger("GoldBot.MusumaliStrategy")
+from src.twister_strategy import TwisterProStrategy
+
+logger = logging.getLogger("GoldBot.Strategy")
 
 TIMEFRAME_MAP = {
     "M1": mt5.TIMEFRAME_M1,
