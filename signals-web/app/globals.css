@@ -1,0 +1,182 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+  --bg-base: #07080b;
+  --bg-surface: rgba(15, 18, 26, 0.78);
+  --bg-card: rgba(22, 26, 38, 0.75);
+  --bg-card-hover: rgba(30, 36, 52, 0.9);
+  
+  --gold-primary: #f5c842;
+  --gold-glow: rgba(245, 200, 66, 0.28);
+  --gold-gradient: linear-gradient(135deg, #ffd700 0%, #d4af37 50%, #aa7c11 100%);
+  
+  --emerald: #10b981;
+  --emerald-glow: rgba(16, 185, 129, 0.25);
+  --emerald-bg: rgba(16, 185, 129, 0.12);
+  
+  --rose: #f43f5e;
+  --rose-glow: rgba(244, 63, 94, 0.25);
+  --rose-bg: rgba(244, 63, 94, 0.12);
+  
+  --cyan: #06b6d4;
+  --cyan-bg: rgba(6, 182, 212, 0.12);
+  
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-gold: rgba(245, 200, 66, 0.4);
+  --border-emerald: rgba(16, 185, 129, 0.4);
+  --border-rose: rgba(244, 63, 94, 0.4);
+
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+  
+  --font-ui: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-base);
+  background-image: 
+    radial-gradient(circle at 12% 12%, rgba(245, 200, 66, 0.07) 0%, transparent 45%),
+    radial-gradient(circle at 88% 88%, rgba(16, 185, 129, 0.06) 0%, transparent 50%);
+  color: var(--text-main);
+  font-family: var(--font-ui);
+  min-height: 100vh;
+  padding: 24px;
+  overflow-x: hidden;
+}
+
+.container {
+  max-width: 1440px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Guardrail Banner */
+.guardrail-banner {
+  background: rgba(245, 200, 66, 0.08);
+  border: 1px solid var(--border-gold);
+  border-radius: 16px;
+  padding: 16px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.guardrail-text {
+  font-size: 14px;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Cards */
+.card {
+  background: var(--bg-surface);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  padding: 24px;
+}
+
+.card-gold-glow {
+  border-color: var(--gold-primary);
+  box-shadow: 0 0 24px rgba(245, 200, 66, 0.18), 0 20px 40px -15px rgba(0, 0, 0, 0.6);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 100px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-main);
+  transition: all 0.2s ease;
+  font-family: var(--font-ui);
+}
+
+.btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--gold-primary);
+  transform: translateY(-1px);
+}
+
+.btn-primary {
+  background: var(--gold-gradient);
+  border: none;
+  color: #000;
+  box-shadow: 0 0 16px rgba(245, 200, 66, 0.3);
+}
+
+.btn-primary:hover {
+  transform: scale(1.02);
+  box-shadow: 0 0 22px rgba(245, 200, 66, 0.5);
+}
+
+.btn-active {
+  background: rgba(245, 200, 66, 0.15);
+  border-color: var(--gold-primary);
+  color: var(--gold-primary);
+}
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.badge-green {
+  background: var(--emerald-bg);
+  border: 1px solid var(--border-emerald);
+  color: var(--emerald);
+}
+
+.badge-red {
+  background: var(--rose-bg);
+  border: 1px solid var(--border-rose);
+  color: var(--rose);
+}
+
+.badge-gold {
+  background: rgba(245, 200, 66, 0.15);
+  border: 1px solid var(--border-gold);
+  color: var(--gold-primary);
+}
+
+.badge-gray {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+}
+
+/* Colors */
+.gold { color: var(--gold-primary); }
+.green { color: var(--emerald); }
+.red { color: var(--rose); }
+.cyan { color: var(--cyan); }
+.mono { font-family: var(--font-mono); }

@@ -26,3 +26,14 @@ Thumbs.db
 
 # Scratch & Temporary
 scratch/
+
+# Node & Next.js
+node_modules/
+signals-web/node_modules/
+signals-web/.next/
+signals-web/.env.local
+signals-web/.env*.local
+.next/
+dist/
+build/
+
