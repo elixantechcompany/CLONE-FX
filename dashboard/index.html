@@ -994,6 +994,268 @@
       color: var(--text-muted);
       font-style: italic;
     }
+
+    /* Multi-Terminal Fleet Grid */
+    .fleet-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+      margin-top: 14px;
+    }
+
+    .fleet-card {
+      background: var(--bg-surface);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 18px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      position: relative;
+      transition: all 0.2s ease;
+    }
+
+    .fleet-card:hover {
+      border-color: var(--border-gold);
+      transform: translateY(-2px);
+    }
+
+    .fleet-card.breaker-tripped {
+      border-color: var(--rose) !important;
+      box-shadow: 0 0 25px rgba(244, 63, 94, 0.3) !important;
+    }
+
+    .fleet-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .fleet-name {
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--text-main);
+    }
+
+    .fleet-type-badge {
+      font-size: 10px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .fleet-stats-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      background: rgba(0, 0, 0, 0.4);
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .fleet-stat-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .fleet-stat-label {
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .fleet-stat-val {
+      font-family: var(--font-mono);
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    /* Drawdown Progress Meter */
+    .dd-meter-container {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-top: 2px;
+    }
+
+    .dd-meter-label-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+    }
+
+    .dd-progress-track {
+      height: 7px;
+      border-radius: 100px;
+      background: rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .dd-progress-fill {
+      height: 100%;
+      border-radius: 100px;
+      background: var(--emerald);
+      transition: width 0.3s ease, background-color 0.3s ease;
+    }
+
+    .dd-progress-fill.warning {
+      background: #f59e0b;
+    }
+
+    .dd-progress-fill.danger {
+      background: var(--rose);
+      box-shadow: 0 0 10px var(--rose);
+    }
+
+    .fleet-actions-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .btn-launch-terminal {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      padding: 7px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+
+    .btn-launch-terminal:hover {
+      background: rgba(245, 200, 66, 0.15);
+      border-color: var(--gold-primary);
+      color: var(--gold-primary);
+    }
+
+    .btn-mode-toggle {
+      padding: 7px 12px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      border: 1px solid var(--border-subtle);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-muted);
+      transition: all 0.2s;
+    }
+
+    .btn-mode-toggle.active-ea {
+      background: var(--emerald-bg);
+      border-color: var(--border-emerald);
+      color: var(--emerald);
+    }
+
+    .btn-mode-toggle.active-scanner {
+      background: var(--cyan-bg);
+      border-color: var(--cyan);
+      color: var(--cyan);
+    }
+
+    /* Modal Backdrop */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+      padding: 20px;
+    }
+
+    .modal-overlay.open {
+      display: flex;
+      animation: modal-fade-in 0.25s ease forwards;
+    }
+
+    @keyframes modal-fade-in {
+      from { opacity: 0; transform: scale(0.96); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .modal-card {
+      background: #0e111a;
+      border: 1px solid var(--border-gold);
+      border-radius: 20px;
+      padding: 28px;
+      width: 100%;
+      max-width: 540px;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), 0 0 30px rgba(245, 200, 66, 0.25);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 14px;
+    }
+
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 20px;
+      cursor: pointer;
+      line-height: 1;
+    }
+
+    .modal-close:hover { color: #fff; }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-group label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .form-group input, .form-group select {
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      padding: 9px 12px;
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      outline: none;
+      transition: border 0.2s;
+    }
+
+    .form-group input:focus, .form-group select:focus {
+      border-color: var(--gold-primary);
+    }
   </style>
 </head>
 <body>
@@ -1020,6 +1282,12 @@
         <button class="btn-control" onclick="testAplusAlert()" title="Test audio chime & toast alert">
           🎯 Test Alert
         </button>
+        <button class="btn-control" onclick="openAddAccountModal()" title="Add a new live or demo trading account (min $20 balance)">
+          ➕ Add Account ($20 min)
+        </button>
+        <button class="btn-control" onclick="launchAllTerminals()" title="Launch all configured MT5 terminals on Desktop">
+          🚀 Launch All MT5
+        </button>
         <button class="btn-control" onclick="fetchDashboardData()">
           🔄 Scan Market
         </button>
@@ -1043,8 +1311,12 @@
         <span class="metric-sub" id="tick_btc_spread">Spread: 1,850 pts</span>
       </div>
       <div class="ticker-item">
-        <span class="ticker-symbol">ACTIVE SESSION:</span>
-        <span class="green" id="session_name" style="font-weight: 700;">London Session</span>
+        <span class="ticker-symbol">KILLZONE WINDOW:</span>
+        <span class="gold" id="tick_killzone_name" style="font-weight: 700;">London Killzone (Peak Volume)</span>
+      </div>
+      <div class="ticker-item">
+        <span class="ticker-symbol">ADR EXHAUSTION:</span>
+        <span class="green" id="tick_adr_status" style="font-weight: 700;">45% Used (Normal Range)</span>
       </div>
       <div class="ticker-item">
         <span class="ticker-symbol">ALGO TRADING:</span>
@@ -1078,6 +1350,24 @@
         <div class="metric-sub">Min 1:2.0 Hard Floor Enforced</div>
       </div>
     </div>
+
+    <!-- Multi-Terminal Fleet & Prop Firm Drawdown Armor -->
+    <section>
+      <div class="section-header">
+        <div>
+          <div class="section-title">🏦 Multi-Terminal Fleet & Prop Firm Drawdown Armor</div>
+          <div class="section-subtitle">Real-time local MT5 processes, equity baseline tracking & 4.0% daily circuit breaker armor</div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-tf active" onclick="openAddAccountModal()">➕ Add Account ($20 min)</button>
+          <button class="btn-tf" onclick="launchAllTerminals()">🚀 Launch All MT5</button>
+        </div>
+      </div>
+
+      <div class="fleet-grid" id="fleet_cards_container">
+        <!-- Dynamic Fleet cards injected here -->
+      </div>
+    </section>
 
     <!-- Multi-Timeframe Trend & Market Structure Decomposition -->
     <section>
@@ -1899,7 +2189,24 @@
           playInstitutionalChime();
         }
 
+        // Killzone & ADR Updates
+        if (data.killzone) {
+          const kzEl = document.getElementById('tick_killzone_name');
+          if (kzEl) {
+            kzEl.textContent = data.killzone.session_name;
+            kzEl.className = data.killzone.trading_allowed ? 'green' : 'gold';
+          }
+        }
+        if (data.adr) {
+          const adrEl = document.getElementById('tick_adr_status');
+          if (adrEl) {
+            adrEl.textContent = `${data.adr.adr_used_pct}% Used (${data.adr.is_exhausted ? 'Reversal Risk' : 'Normal Range'})`;
+            adrEl.className = data.adr.is_exhausted ? 'red' : 'green';
+          }
+        }
+
         // Render Components
+        renderFleetCards(data.accounts || []);
         renderStructureMatrix(data.market_structure);
         renderSignals(activeSetups);
         renderFormingRadar(formingSetups);
@@ -1925,10 +2232,302 @@
       }
     }
 
+    // Render Multi-Terminal Fleet Cards
+    function renderFleetCards(accounts) {
+      const container = document.getElementById('fleet_cards_container');
+      if (!container) return;
+      if (!accounts || accounts.length === 0) {
+        container.innerHTML = '<div class="empty-state">No trading accounts configured. Click "+ Add Account" to register one.</div>';
+        return;
+      }
+
+      container.innerHTML = accounts.map(a => {
+        const isProp = a.type === 'BRIGHTFUNDED' || a.type === 'PROP_FIRM';
+        const isEA = a.execution_mode === 'AUTOMATED_EA';
+        const isBreakerTripped = a.circuit_breaker_tripped;
+        const pnl = a.daily_pnl || 0.0;
+        const pnlSign = pnl >= 0 ? '+' : '';
+        const pnlClass = pnl >= 0 ? 'green' : 'red';
+        const maxLossPct = a.max_daily_loss_pct || 4.0;
+        const ddPct = Math.min(100, Math.max(0, ((a.daily_drawdown_pct || 0) / maxLossPct) * 100));
+        let ddFillClass = '';
+        if (ddPct > 75) ddFillClass = 'danger';
+        else if (ddPct > 50) ddFillClass = 'warning';
+
+        return `
+          <div class="fleet-card ${isBreakerTripped ? 'breaker-tripped' : ''}">
+            <div class="fleet-header">
+              <div>
+                <div class="fleet-name">${a.name}</div>
+                <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 2px;">
+                  ID: ${a.id.toUpperCase()} • ${a.mode}
+                </div>
+              </div>
+              <span class="fleet-type-badge ${isProp ? 'trend-bullish' : 'trend-neutral'}">
+                ${isProp ? 'PROP CHALLENGE' : 'MICRO LIVE'}
+              </span>
+            </div>
+
+            <!-- Balances & PnL -->
+            <div class="fleet-stats-row">
+              <div class="fleet-stat-item">
+                <span class="fleet-stat-label">Balance</span>
+                <span class="fleet-stat-val gold">$${Number(a.balance).toFixed(2)}</span>
+              </div>
+              <div class="fleet-stat-item">
+                <span class="fleet-stat-label">Equity</span>
+                <span class="fleet-stat-val">$${Number(a.equity || a.balance).toFixed(2)}</span>
+              </div>
+              <div class="fleet-stat-item" style="margin-top: 4px;">
+                <span class="fleet-stat-label">Daily P&L</span>
+                <span class="fleet-stat-val ${pnlClass}">${pnlSign}$${Number(pnl).toFixed(2)}</span>
+              </div>
+              <div class="fleet-stat-item" style="margin-top: 4px;">
+                <span class="fleet-stat-label">Safety Status</span>
+                <span style="font-size: 11px; font-weight: 700; color: ${isBreakerTripped ? 'var(--rose)' : 'var(--emerald)'};">
+                  ${isBreakerTripped ? '⚠️ HALTED' : '🛡️ ARMED'}
+                </span>
+              </div>
+            </div>
+
+            <!-- Drawdown Circuit Breaker Armor Meter -->
+            <div class="dd-meter-container">
+              <div class="dd-meter-label-row">
+                <span>Daily Drawdown Armor:</span>
+                <span class="${(a.daily_drawdown_pct || 0) > 3.0 ? 'red' : 'green'}">
+                  ${Number(a.daily_drawdown_pct || 0).toFixed(2)}% / ${maxLossPct}% Max
+                </span>
+              </div>
+              <div class="dd-progress-track">
+                <div class="dd-progress-fill ${ddFillClass}" style="width: ${ddPct}%;"></div>
+              </div>
+            </div>
+
+            <!-- Fleet Actions Row -->
+            <div class="fleet-actions-row">
+              <button class="btn-launch-terminal" onclick="launchTerminal('${a.id}')" title="Launch dedicated MT5 desktop instance for this account">
+                🚀 Launch MT5
+              </button>
+              <button class="btn-mode-toggle ${isEA ? 'active-ea' : 'active-scanner'}" onclick="toggleAccountMode('${a.id}', '${a.execution_mode || 'AUTOMATED_EA'}')" title="Toggle between Automated EA and Visual Scanner">
+                ${isEA ? '🤖 AUTO EA' : '📡 SCANNER'}
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Modal & Account Actions
+    function openAddAccountModal() {
+      document.getElementById('add_account_modal').classList.add('open');
+    }
+
+    function closeAddAccountModal() {
+      document.getElementById('add_account_modal').classList.remove('open');
+    }
+
+    function updateAccountTypePreset() {
+      const type = document.getElementById('acc_type_input').value;
+      const balanceInput = document.getElementById('acc_balance_input');
+      const serverInput = document.getElementById('acc_server_input');
+      if (type === 'BRIGHTFUNDED') {
+        if (parseFloat(balanceInput.value) < 1000) balanceInput.value = '1000';
+        serverInput.value = 'BrightFunded-Server';
+      } else if (type === 'PERSONAL') {
+        if (parseFloat(balanceInput.value) < 20) balanceInput.value = '20';
+        serverInput.value = 'HFMarkets-Live';
+      }
+    }
+
+    async function submitAddAccount(e) {
+      e.preventDefault();
+      const name = document.getElementById('acc_name_input').value.trim();
+      const account_type = document.getElementById('acc_type_input').value;
+      const balance = parseFloat(document.getElementById('acc_balance_input').value);
+      const login = document.getElementById('acc_login_input').value.trim();
+      const password = document.getElementById('acc_pass_input').value.trim();
+      const server = document.getElementById('acc_server_input').value.trim();
+      const path = document.getElementById('acc_path_input').value.trim();
+      const mode = document.getElementById('acc_mode_input').value;
+      const execution_mode = document.getElementById('acc_exec_mode_input').value;
+
+      if (balance < 20) {
+        showToast('Account creation failed: Minimum balance is $20.00 USD', 'error');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/accounts/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name, account_type, balance, login, password, server, path, mode, execution_mode
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Account registered successfully: ${name} ($${balance.toFixed(2)})`, 'success');
+          closeAddAccountModal();
+          fetchDashboardData();
+        } else {
+          showToast(`Failed to add account: ${data.error}`, 'error');
+        }
+      } catch (err) {
+        showToast(`Request failed: ${err.message}`, 'error');
+      }
+    }
+
+    async function launchTerminal(accId) {
+      try {
+        showToast(`Launching local MT5 Terminal process for ${accId.toUpperCase()}...`, 'info');
+        const res = await fetch('/api/terminals/launch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_id: accId })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Terminal process launched for ${accId.toUpperCase()}!`, 'success');
+        } else {
+          showToast(`Failed to launch terminal for ${accId}`, 'error');
+        }
+      } catch (err) {
+        showToast('Launch request failed', 'error');
+      }
+    }
+
+    async function launchAllTerminals() {
+      try {
+        showToast('Launching all configured local MT5 terminals on Desktop...', 'info');
+        const res = await fetch('/api/terminals/launch-all', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Launched ${data.results.length} desktop MT5 terminals!`, 'success');
+        } else {
+          showToast('Failed to launch terminals', 'error');
+        }
+      } catch (err) {
+        showToast('Launch all request failed', 'error');
+      }
+    }
+
+    async function toggleAccountMode(accId, curMode) {
+      const newMode = curMode === 'AUTOMATED_EA' ? 'VISUAL_SCANNER' : 'AUTOMATED_EA';
+      try {
+        const res = await fetch('/api/accounts/toggle-mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_id: accId, execution_mode: newMode })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`${accId.toUpperCase()} switched to ${newMode === 'AUTOMATED_EA' ? '🤖 AUTOMATED EA' : '📡 VISUAL SCANNER'}`, 'success');
+          fetchDashboardData();
+        } else {
+          showToast('Failed to toggle mode', 'error');
+        }
+      } catch (err) {
+        showToast('Toggle mode request failed', 'error');
+      }
+    }
+
     // Launch
     initChart();
     fetchDashboardData();
     setInterval(fetchDashboardData, 2500);
   </script>
+
+  <!-- Add Trading Account Modal Dialog -->
+  <div class="modal-overlay" id="add_account_modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div style="font-size: 18px; font-weight: 700; color: var(--gold-primary);">➕ Add New Trading Account</div>
+        <button class="modal-close" onclick="closeAddAccountModal()">&times;</button>
+      </div>
+
+      <form id="add_account_form" onsubmit="submitAddAccount(event)">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label>Account Label / Name</label>
+            <input type="text" id="acc_name_input" placeholder="e.g. HF Markets $20 Micro" required>
+          </div>
+          <div class="form-group">
+            <label>Account Type</label>
+            <select id="acc_type_input" onchange="updateAccountTypePreset()">
+              <option value="PERSONAL">Personal Account ($20 min)</option>
+              <option value="BRIGHTFUNDED">BrightFunded Challenge ($1k+)</option>
+              <option value="PROP_FIRM">General Prop Firm Challenge</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
+          <div class="form-group">
+            <label>Initial Balance ($ USD) *</label>
+            <input type="number" id="acc_balance_input" min="20" step="1" value="20" required>
+            <span style="font-size: 10px; color: var(--gold-primary);">* Strictly minimum $20.00 USD</span>
+          </div>
+          <div class="form-group">
+            <label>MT5 Login ID (Account #)</label>
+            <input type="number" id="acc_login_input" placeholder="e.g. 51839210" required>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
+          <div class="form-group">
+            <label>MT5 Password</label>
+            <input type="password" id="acc_pass_input" placeholder="Master or Trader Password" required>
+          </div>
+          <div class="form-group">
+            <label>Broker Server</label>
+            <input type="text" id="acc_server_input" list="broker_servers_list" placeholder="e.g. HFMarkets-Live" required>
+            <datalist id="broker_servers_list">
+              <option value="Exness-Real">
+              <option value="Exness-Real2">
+              <option value="Exness-Trial">
+              <option value="HFMarkets-Live">
+              <option value="HFMarkets-Demo">
+              <option value="FBS-Real">
+              <option value="FBS-Demo">
+              <option value="BrightFunded-Server">
+              <option value="MetaQuotes-Demo">
+            </datalist>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 10px;">
+          <label>MT5 Terminal Executable Path (terminal64.exe)</label>
+          <input type="text" id="acc_path_input" value="C:\Program Files\MetaTrader 5\terminal64.exe">
+          <span style="font-size: 10px; color: var(--text-dim);">Path to terminal64.exe for dedicated local process binding</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
+          <div class="form-group">
+            <label>Routing Mode</label>
+            <select id="acc_mode_input">
+              <option value="INDEPENDENT">Independent (Autonomous)</option>
+              <option value="COPY_MASTER">Copy Master</option>
+              <option value="COPY_FOLLOWER">Copy Follower</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Initial Execution Mode</label>
+            <select id="acc_exec_mode_input">
+              <option value="AUTOMATED_EA">🤖 Automated EA (Full Auto)</option>
+              <option value="VISUAL_SCANNER">📡 Visual Scanner (Manual Radar)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+          <button type="button" class="btn-control" onclick="closeAddAccountModal()">Cancel</button>
+          <button type="submit" class="btn-copy" style="padding: 10px 24px;">Register & Bind Account</button>
+        </div>
+      </form>
+    </div>
+  </div>
 </body>
 </html>

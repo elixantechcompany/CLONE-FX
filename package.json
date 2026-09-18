@@ -1,0 +1,13 @@
+{
+  "name": "gold-clone",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Institutional Market Structure & SMC Signals System with Web Terminal",
+  "scripts": {
+    "dev": "npm --prefix signals-web run dev",
+    "build": "npm --prefix signals-web run build",
+    "start": "npm --prefix signals-web start",
+    "ui": "python run_ui.py",
+    "dashboard": "python run_ui.py"
+  }
+}

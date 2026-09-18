@@ -18,6 +18,7 @@ except ImportError:
 
 from src.market_structure import MarketStructureAnalyzer
 from src.perfect_setups import PerfectSetupDetector
+from src.account_manager import AccountManager
 
 logger = logging.getLogger("GoldBot.Dashboard")
 
@@ -36,6 +37,7 @@ class DashboardExporter:
 
         self.structure_analyzer = MarketStructureAnalyzer(config)
         self.setup_detector = PerfectSetupDetector(config)
+        self.account_manager = AccountManager()
 
     def export_data(
         self,
@@ -227,7 +229,14 @@ class DashboardExporter:
                 })
 
             primary_struct = structure_all.get(list(structure_all.keys())[0]) if structure_all else {}
-            primary_acc = accounts_summary[0] if accounts_summary else {"equity": 1000.0, "balance": 1000.0, "daily_pnl": 0.0}
+            fleet = self.account_manager.get_fleet_summary()
+            if not accounts_summary or len(accounts_summary) <= 1:
+                accounts_summary = fleet
+            primary_acc = accounts_summary[0] if accounts_summary else {"balance": 1000.0, "equity": 1000.0, "daily_pnl": 0.0}
+
+            killzone_info = PerfectSetupDetector.get_killzone_status()
+            cur_p = primary_struct.get("current_price", 2735.20)
+            adr_info = PerfectSetupDetector.check_adr_exhaustion(primary_sym, cur_p)
 
             payload = {
                 "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
@@ -235,6 +244,8 @@ class DashboardExporter:
                 "active_symbols": active_symbols,
                 "primary_symbol": primary_sym,
                 "active_session": active_session,
+                "killzone": killzone_info,
+                "adr": adr_info,
                 "master_switch": {
                     "primary_switch": "MT5_NATIVE_ALGO_TRADING",
                     "algo_trading_active": any(a.get("algo_trading_allowed", False) for a in accounts_summary) if accounts_summary else True,

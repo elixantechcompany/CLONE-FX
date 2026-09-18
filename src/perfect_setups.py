@@ -52,6 +52,57 @@ class PerfectSetupDetector:
         self.recent_signals: List[PerfectSetup] = []
         self.signals_history: List[Dict[str, Any]] = []
 
+    @staticmethod
+    def get_killzone_status() -> Dict[str, Any]:
+        """Calculates current institutional Killzone trading window."""
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        time_dec = now_utc.hour + now_utc.minute / 60.0
+
+        # London Killzone: 07:00 - 11:00 UTC
+        # New York Killzone: 12:30 - 17:00 UTC
+        # Asian Session: 23:00 - 06:00 UTC
+        is_london = 7.0 <= time_dec < 11.0
+        is_ny = 12.5 <= time_dec < 17.0
+        is_killzone = is_london or is_ny
+        is_asian = (time_dec >= 23.0) or (time_dec < 6.0)
+        is_friday_late = (now_utc.weekday() == 4 and time_dec >= 19.0)
+
+        if is_london:
+            session_name = "London Killzone (Peak Volume)"
+        elif is_ny:
+            session_name = "New York Killzone (High Liquidity)"
+        elif is_asian:
+            session_name = "Asian Session (Low Volume Filter)"
+        else:
+            session_name = "Inter-Session Trading Window"
+
+        if is_friday_late:
+            session_name = "Weekend Close Risk (Trading Halted)"
+
+        return {
+            "is_killzone": is_killzone,
+            "session_name": session_name,
+            "trading_allowed": is_killzone and not is_friday_late,
+            "utc_time": now_utc.strftime("%H:%M UTC"),
+        }
+
+    @staticmethod
+    def check_adr_exhaustion(symbol: str, cur_price: float, day_high: float = 0.0, day_low: float = 0.0) -> Dict[str, Any]:
+        """Evaluates ADR (Average Daily Range) exhaustion to prevent top-buying / bottom-selling."""
+        is_gold = "XAU" in symbol.upper()
+        typical_adr = 32.0 if is_gold else 3500.0  # Gold ADR is ~32.0 pts
+        range_pts = max(0.1, (day_high - day_low)) if (day_high > 0 and day_low > 0) else 14.5
+        pct_used = min(150.0, (range_pts / typical_adr) * 100.0)
+
+        exhausted = pct_used >= 85.0
+        return {
+            "adr_used_pct": round(pct_used, 1),
+            "range_pts": round(range_pts, 2),
+            "typical_adr": typical_adr,
+            "is_exhausted": exhausted,
+            "warning": f"ADR {pct_used:.0f}% exhausted. Reversal risk high." if exhausted else "Normal Daily Range",
+        }
+
     def evaluate_setups(
         self,
         symbol: str,
