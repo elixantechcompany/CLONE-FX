@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./signals-web/*"]
+    },
+    "typeRoots": [
+      "./signals-web/node_modules/@types"
+    ]
+  },
+  "include": [
+    "signals-web/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "signals-web/node_modules",
+    "signals-web/.next"
+  ]
+}

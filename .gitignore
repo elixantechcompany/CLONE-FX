@@ -36,4 +36,5 @@ signals-web/.env*.local
 .next/
 dist/
 build/
+*.tsbuildinfo
 
