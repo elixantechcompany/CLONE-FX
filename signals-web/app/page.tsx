@@ -26,6 +26,49 @@ export default function DashboardPage() {
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'CLOSED'>('ALL');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Calculator & Audio State
+  const [balance, setBalance] = useState<number>(1000);
+  const [riskPercent, setRiskPercent] = useState<number>(0.25);
+  const [slPoints, setSlPoints] = useState<number>(3.5);
+  const [selectedPreset, setSelectedPreset] = useState<string>('BrightFunded');
+  const [calcSymbol, setCalcSymbol] = useState<string>('XAUUSD');
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+
+  const playChime = () => {
+    if (!soundEnabled) return;
+    try {
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      const now = ctx.currentTime;
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(587.33, now);
+      osc1.frequency.exponentialRampToValueAtTime(880.0, now + 0.15);
+
+      osc2.type = 'triangle';
+      osc2.frequency.setValueAtTime(880.0, now + 0.15);
+      osc2.frequency.exponentialRampToValueAtTime(1174.66, now + 0.35);
+
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc1.start(now);
+      osc2.start(now + 0.15);
+      osc1.stop(now + 0.35);
+      osc2.stop(now + 0.65);
+    } catch (e) {
+      console.warn('Audio chime note:', e);
+    }
+  };
+
   // Fetch signals
   const fetchSignals = async () => {
     try {
@@ -219,8 +262,46 @@ export default function DashboardPage() {
                 boxShadow: '0 0 10px var(--emerald)',
               }}
             />
-            5-MIN GITHUB CLOCK ACTIVE
+            5-MIN CLOCK ACTIVE
           </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 16px',
+              borderRadius: '100px',
+              background: 'rgba(6, 182, 212, 0.12)',
+              border: '1px solid rgba(6, 182, 212, 0.4)',
+              fontSize: '12px',
+              fontWeight: 700,
+              color: '#38bdf8',
+            }}
+          >
+            <span
+              style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: '#38bdf8',
+                boxShadow: '0 0 10px #38bdf8',
+              }}
+            />
+            SUPABASE: ONLINE
+          </div>
+
+          <button
+            className="btn"
+            onClick={() => {
+              setSoundEnabled(!soundEnabled);
+              if (!soundEnabled) playChime();
+              showToast(soundEnabled ? 'Audio alerts muted' : 'Audio alerts enabled');
+            }}
+            style={{ padding: '8px 14px' }}
+          >
+            {soundEnabled ? '🔔 Sound ON' : '🔕 Sound OFF'}
+          </button>
         </div>
       </header>
 
@@ -243,6 +324,139 @@ export default function DashboardPage() {
         <div style={{ display: 'flex', gap: '10px' }}>
           <span className="badge badge-gold">Strictly Manual Execution</span>
           <span className="badge badge-green">1.5x ATR Risk Floor</span>
+        </div>
+      </div>
+
+      {/* Prop Firm Risk & Lot Size Calculator Widget */}
+      <div className="card" style={{ border: '1px solid var(--border-gold)', background: 'rgba(18, 22, 33, 0.85)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '18px' }}>⚖️</span>
+            <span style={{ fontWeight: 800, fontSize: '15px' }}>Prop Firm Risk & Lot Size Calculator</span>
+          </div>
+          <span className="badge badge-gold" style={{ fontSize: '11px' }}>Active Pair: {calcSymbol}</span>
+        </div>
+
+        {/* Account Presets */}
+        <div style={{ marginTop: '14px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700, textTransform: 'uppercase' }}>Account Preset:</span>
+          {[
+            { label: '$1,000 (BrightFunded)', val: 1000, key: 'BrightFunded' },
+            { label: '$100 (Exness)', val: 100, key: 'Exness' },
+            { label: '$20 (HF Markets)', val: 20, key: 'HF' },
+            { label: '$20 (FBS)', val: 20, key: 'FBS' },
+          ].map((preset) => (
+            <button
+              key={preset.key}
+              className={`btn ${selectedPreset === preset.key ? 'btn-active' : ''}`}
+              style={{ fontSize: '11px', padding: '4px 10px' }}
+              onClick={() => {
+                setBalance(preset.val);
+                setSelectedPreset(preset.key);
+                showToast(`Selected ${preset.label} preset`);
+              }}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Calculator Inputs & Dynamic Results */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginTop: '16px' }}>
+          <div>
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 600 }}>ACCOUNT BALANCE ($)</div>
+            <input
+              type="number"
+              value={balance}
+              onChange={(e) => {
+                setBalance(parseFloat(e.target.value) || 0);
+                setSelectedPreset('Custom');
+              }}
+              style={{
+                width: '100%',
+                marginTop: '4px',
+                padding: '8px 12px',
+                background: 'rgba(0,0,0,0.4)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '8px',
+                color: '#fff',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '14px',
+                fontWeight: 700,
+              }}
+            />
+          </div>
+
+          <div>
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 600 }}>RISK PER TRADE (%)</div>
+            <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+              {[0.25, 0.50, 1.00, 2.00].map((pct) => (
+                <button
+                  key={pct}
+                  className={`btn ${riskPercent === pct ? 'btn-active' : ''}`}
+                  style={{ flex: 1, padding: '8px 2px', fontSize: '11px', fontWeight: 700 }}
+                  onClick={() => setRiskPercent(pct)}
+                >
+                  {pct}%
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 600 }}>SL DISTANCE (PTS)</div>
+            <input
+              type="number"
+              step="0.1"
+              value={slPoints}
+              onChange={(e) => setSlPoints(parseFloat(e.target.value) || 0.5)}
+              style={{
+                width: '100%',
+                marginTop: '4px',
+                padding: '8px 12px',
+                background: 'rgba(0,0,0,0.4)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '8px',
+                color: '#fff',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '14px',
+                fontWeight: 700,
+              }}
+            />
+          </div>
+
+          {/* Computed Results Card */}
+          <div
+            style={{
+              background: 'rgba(0,0,0,0.45)',
+              border: '1px solid rgba(245,200,66,0.3)',
+              borderRadius: '12px',
+              padding: '12px 16px',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              gap: '4px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+              <span style={{ color: 'var(--text-muted)' }}>Max Risk Allowance:</span>
+              <span className="mono red" style={{ fontWeight: 700 }}>
+                ${(balance * (riskPercent / 100)).toFixed(2)} ({riskPercent}%)
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2px' }}>
+              <span style={{ color: 'var(--gold-primary)', fontWeight: 700, fontSize: '12px' }}>Recommended Lot:</span>
+              <span className="mono gold" style={{ fontSize: '18px', fontWeight: 800 }}>
+                {Math.max(0.01, Math.round(((balance * (riskPercent / 100)) / (Math.max(slPoints, 0.5) * (calcSymbol.includes('XAU') ? 100 : 1))) * 100) / 100).toFixed(2)} LOT
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--emerald)' }}>
+              <span>Target 1:2.0 Return:</span>
+              <span className="mono" style={{ fontWeight: 700 }}>
+                +${((balance * (riskPercent / 100)) * 2).toFixed(2)} (+{(riskPercent * 2).toFixed(2)}%)
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 

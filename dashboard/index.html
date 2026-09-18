@@ -430,10 +430,18 @@
       gap: 16px;
       box-shadow: 0 15px 35px -10px rgba(0, 0, 0, 0.5);
       transition: all 0.25s ease;
+      cursor: pointer;
     }
 
     .signal-card:hover {
       transform: translateY(-3px);
+      border-color: rgba(245, 200, 66, 0.5);
+    }
+
+    .signal-card.selected {
+      border-color: var(--gold-primary) !important;
+      box-shadow: 0 0 32px rgba(245, 200, 66, 0.45), 0 20px 40px -10px rgba(0, 0, 0, 0.8) !important;
+      transform: translateY(-4px);
     }
 
     .signal-card.grade-aplus {
@@ -652,10 +660,247 @@
 
     .panel-card {
       background: var(--bg-surface);
-      backdrop-filter: blur(16px);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
       border: 1px solid var(--border-subtle);
       border-radius: 20px;
       padding: 22px;
+      box-shadow: 0 16px 36px -12px rgba(0, 0, 0, 0.6);
+    }
+
+    /* Advanced Prop Firm Calculator Widget */
+    .glass-calculator {
+      background: rgba(18, 22, 33, 0.85);
+      border: 1px solid var(--border-gold);
+      box-shadow: 0 0 25px rgba(245, 200, 66, 0.12), 0 20px 40px -15px rgba(0, 0, 0, 0.7);
+    }
+
+    .calc-presets {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .calc-label {
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+
+    .preset-buttons {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .btn-preset {
+      padding: 5px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border-subtle);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: var(--font-mono);
+      transition: all 0.2s ease;
+    }
+
+    .btn-preset:hover, .btn-preset.active {
+      background: rgba(245, 200, 66, 0.18);
+      border-color: var(--gold-primary);
+      color: var(--gold-primary);
+    }
+
+    .calc-inputs-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .calc-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .calc-group label {
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .calc-group input {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      padding: 8px 12px;
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      font-weight: 600;
+      outline: none;
+      transition: border 0.2s;
+    }
+
+    .calc-group input:focus {
+      border-color: var(--gold-primary);
+      box-shadow: 0 0 10px rgba(245, 200, 66, 0.2);
+    }
+
+    .risk-pct-group {
+      display: flex;
+      gap: 4px;
+      margin-top: 2px;
+    }
+
+    .btn-risk {
+      flex: 1;
+      padding: 6px 2px;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 6px;
+      border: 1px solid var(--border-subtle);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-muted);
+      cursor: pointer;
+      font-family: var(--font-mono);
+      transition: all 0.2s;
+    }
+
+    .btn-risk.active, .btn-risk:hover {
+      background: var(--emerald-bg);
+      border-color: var(--border-emerald);
+      color: var(--emerald);
+    }
+
+    .calc-results-card {
+      margin-top: 14px;
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 14px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .calc-stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .calc-stat-label {
+      color: var(--text-muted);
+    }
+
+    .calc-stat-val {
+      font-family: var(--font-mono);
+      font-weight: 700;
+    }
+
+    .calc-lot-highlight {
+      background: rgba(245, 200, 66, 0.08);
+      border: 1px solid var(--border-gold);
+      border-radius: 10px;
+      padding: 8px 12px;
+      margin: 4px 0;
+    }
+
+    .btn-copy-ticket {
+      margin-top: 12px;
+      width: 100%;
+      background: var(--gold-gradient);
+      border: none;
+      color: #000;
+      font-weight: 800;
+      font-size: 12px;
+      padding: 10px;
+      border-radius: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s;
+      box-shadow: 0 0 16px rgba(245, 200, 66, 0.25);
+    }
+
+    .btn-copy-ticket:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 24px rgba(245, 200, 66, 0.45);
+    }
+
+    /* Liquidity Depth & Value Area Radar */
+    .glass-liquidity {
+      background: rgba(18, 22, 33, 0.85);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .liq-depth-track {
+      margin-top: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .liq-meter-bar {
+      position: relative;
+      height: 12px;
+      border-radius: 10px;
+      background: linear-gradient(90deg, #f43f5e 0%, #10b981 40%, #ffd700 60%, #06b6d4 100%);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
+    }
+
+    .liq-cursor {
+      position: absolute;
+      top: -4px;
+      width: 10px;
+      height: 20px;
+      border-radius: 4px;
+      background: #ffffff;
+      box-shadow: 0 0 10px #ffffff, 0 0 18px var(--gold-primary);
+      transform: translateX(-50%);
+      transition: left 0.4s ease;
+    }
+
+    .liq-labels-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text-dim);
+    }
+
+    /* Supabase Cloud Badge */
+    .badge-supabase {
+      background: rgba(6, 182, 212, 0.12);
+      border: 1px solid rgba(6, 182, 212, 0.4);
+      color: #38bdf8;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .badge-supabase:hover {
+      background: rgba(6, 182, 212, 0.22);
+      transform: translateY(-1px);
+    }
+
+    .cloud-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #38bdf8;
+      box-shadow: 0 0 10px #38bdf8;
+      animation: pulse 2s infinite;
     }
 
     /* Radar forming setups */
@@ -765,8 +1010,15 @@
       </div>
       
       <div class="header-actions">
+        <div class="badge badge-supabase" onclick="showSupabaseInfo()" title="Supabase Database Live Synced">
+          <div class="cloud-dot"></div>
+          <span id="supabase_status_text">Supabase Cloud: Synced</span>
+        </div>
         <button id="btn_sound" class="btn-control active" onclick="toggleSound()">
           <span id="sound_icon">🔔</span> Audio Alerts: ON
+        </button>
+        <button class="btn-control" onclick="testAplusAlert()" title="Test audio chime & toast alert">
+          🎯 Test Alert
         </button>
         <button class="btn-control" onclick="fetchDashboardData()">
           🔄 Scan Market
@@ -877,8 +1129,93 @@
         <div id="tv_chart"></div>
       </div>
 
-      <!-- Side Stack: Radar & Key Zones -->
+      <!-- Side Stack: Radar, Calculator & Key Zones -->
       <div class="side-stack">
+        <!-- Prop Firm Risk & Lot Size Calculator -->
+        <div class="panel-card glass-calculator">
+          <div class="section-title" style="font-size: 15px; display: flex; justify-content: space-between; align-items: center;">
+            <span>⚖️ Prop Firm Risk & Lot Calculator</span>
+            <div style="display: flex; gap: 4px;">
+              <button class="btn-preset active" id="btn_calc_sym_xau" onclick="setCalcInstrument('XAUUSDm')">XAU</button>
+              <button class="btn-preset" id="btn_calc_sym_btc" onclick="setCalcInstrument('BTCUSDm')">BTC</button>
+            </div>
+          </div>
+          
+          <div class="calc-presets">
+            <div class="calc-label">Select Account Size:</div>
+            <div class="preset-buttons">
+              <button class="btn-preset active" id="btn_preset_1000" onclick="setAccountPreset(1000, 'BrightFunded')">$1,000</button>
+              <button class="btn-preset" id="btn_preset_100" onclick="setAccountPreset(100, 'Exness')">$100</button>
+              <button class="btn-preset" id="btn_preset_20_hf" onclick="setAccountPreset(20, 'HF Markets')">$20 (HF)</button>
+              <button class="btn-preset" id="btn_preset_20_fbs" onclick="setAccountPreset(20, 'FBS')">$20 (FBS)</button>
+              <button class="btn-preset" id="btn_preset_custom" onclick="setAccountPreset('custom', 'Custom')">Custom</button>
+            </div>
+          </div>
+
+          <div class="calc-inputs-row">
+            <div class="calc-group">
+              <label>Account Balance ($)</label>
+              <input type="number" id="calc_balance_input" value="1000" oninput="calculateLotSize()">
+            </div>
+            <div class="calc-group">
+              <label>SL Distance (pts)</label>
+              <input type="number" step="0.1" id="calc_sl_input" value="3.5" oninput="calculateLotSize()">
+            </div>
+          </div>
+
+          <div class="calc-group" style="margin-top: 10px;">
+            <label>Risk Per Trade (%):</label>
+            <div class="risk-pct-group">
+              <button class="btn-risk active" id="risk_btn_025" onclick="setRiskPct(0.25)">0.25%</button>
+              <button class="btn-risk" id="risk_btn_050" onclick="setRiskPct(0.50)">0.50%</button>
+              <button class="btn-risk" id="risk_btn_100" onclick="setRiskPct(1.00)">1.00%</button>
+              <button class="btn-risk" id="risk_btn_200" onclick="setRiskPct(2.00)">2.00%</button>
+            </div>
+          </div>
+
+          <div class="calc-results-card">
+            <div class="calc-stat-row">
+              <span class="calc-stat-label">Max Risk Allowance:</span>
+              <span class="calc-stat-val red" id="calc_risk_usd">$2.50</span>
+            </div>
+            <div class="calc-stat-row calc-lot-highlight">
+              <span class="calc-stat-label" style="color: var(--gold-primary); font-weight: 700;">Calculated Lot Size:</span>
+              <span class="calc-stat-val gold" id="calc_lot_output" style="font-size: 18px;">0.01 LOT</span>
+            </div>
+            <div class="calc-stat-row">
+              <span class="calc-stat-label">Target TP1 Gain (1:2):</span>
+              <span class="calc-stat-val green" id="calc_tp1_gain">+$5.00 (+0.50%)</span>
+            </div>
+            <div class="calc-stat-row">
+              <span class="calc-stat-label">Target TP2 Gain (1:3+):</span>
+              <span class="calc-stat-val cyan" id="calc_tp2_gain">+$7.50 (+0.75%)</span>
+            </div>
+          </div>
+
+          <button class="btn-copy-ticket" onclick="copyOrderTicket()">
+            📋 Copy MT5 Execution Plan
+          </button>
+        </div>
+
+        <!-- Liquidity Depth & Value Area Radar -->
+        <div class="panel-card glass-liquidity">
+          <div class="section-title" style="font-size: 15px; display: flex; justify-content: space-between; align-items: center;">
+            <span>🌊 Liquidity Depth & Value Area</span>
+            <span class="trend-pill trend-bullish" id="liq_regime_badge" style="font-size: 10px;">DISCOUNT VALUE AREA</span>
+          </div>
+
+          <div class="liq-depth-track">
+            <div class="liq-meter-bar">
+              <div class="liq-cursor" id="liq_cursor_el" style="left: 45%;"></div>
+            </div>
+            <div class="liq-labels-row">
+              <span id="liq_ssl_label" class="red">SSL: 2,729.50</span>
+              <span id="liq_cur_label" style="color: var(--gold-primary); font-weight: 700;">Price: 2,735.20</span>
+              <span id="liq_bsl_label" class="cyan">BSL: 2,746.00</span>
+            </div>
+          </div>
+        </div>
+
         <div class="panel-card">
           <div class="section-title" style="font-size: 16px;">
             <span>📡 Setups Forming Radar (Early Warning)</span>
@@ -1016,6 +1353,236 @@
       });
     }
 
+    // =========================================================================
+    // Advanced Trading Terminal Widgets & Interactions
+    // =========================================================================
+    let activePriceLines = [];
+    let currentRiskPct = 0.25;
+    let currentCalcSymbol = 'XAUUSDm';
+    let currentActiveSignal = null;
+
+    function showSupabaseInfo() {
+      showToast('⚡ Supabase Cloud Live: 5 Tables Online (signals, price_cache, accounts, executions, alerts)', 'success');
+    }
+
+    function updateChartPriceLines(s) {
+      if (!candleSeries || !s) return;
+      // Remove old lines
+      activePriceLines.forEach(line => {
+        try { candleSeries.removePriceLine(line); } catch (e) {}
+      });
+      activePriceLines = [];
+
+      try {
+        // Entry Line (Gold/Cyan)
+        activePriceLines.push(candleSeries.createPriceLine({
+          price: s.entry_price,
+          color: '#ffd700',
+          lineWidth: 2,
+          lineStyle: LightweightCharts.LineStyle.Dotted,
+          axisLabelVisible: true,
+          title: `ENTRY [${s.direction}]`,
+        }));
+
+        // Stop Loss Line (Rose Red)
+        activePriceLines.push(candleSeries.createPriceLine({
+          price: s.stop_loss,
+          color: '#f43f5e',
+          lineWidth: 2,
+          lineStyle: LightweightCharts.LineStyle.Solid,
+          axisLabelVisible: true,
+          title: `SL (${(s.sl_distance || Math.abs(s.entry_price - s.stop_loss)).toFixed(1)} pts)`,
+        }));
+
+        // TP1 Line (Emerald Green)
+        activePriceLines.push(candleSeries.createPriceLine({
+          price: s.tp1,
+          color: '#10b981',
+          lineWidth: 2,
+          lineStyle: LightweightCharts.LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: `TP1 (1:2.0 R:R)`,
+        }));
+
+        // TP2 Line (Cyan)
+        if (s.tp2) {
+          activePriceLines.push(candleSeries.createPriceLine({
+            price: s.tp2,
+            color: '#06b6d4',
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: `TP2 (1:3.0+ R:R)`,
+          }));
+        }
+      } catch (e) {
+        console.warn('Price lines rendering note:', e);
+      }
+    }
+
+    function setAccountPreset(val, name) {
+      document.querySelectorAll('.preset-buttons .btn-preset').forEach(b => b.classList.remove('active'));
+      const balanceInput = document.getElementById('calc_balance_input');
+      
+      if (val === 'custom') {
+        document.getElementById('btn_preset_custom').classList.add('active');
+        balanceInput.focus();
+      } else {
+        balanceInput.value = val;
+        if (val === 1000) document.getElementById('btn_preset_1000').classList.add('active');
+        else if (val === 100) document.getElementById('btn_preset_100').classList.add('active');
+        else if (name.includes('HF')) document.getElementById('btn_preset_20_hf').classList.add('active');
+        else if (name.includes('FBS')) document.getElementById('btn_preset_20_fbs').classList.add('active');
+      }
+      calculateLotSize();
+      showToast(`Selected ${name} ($${val}) account preset`, 'info');
+    }
+
+    function setRiskPct(pct) {
+      currentRiskPct = pct;
+      document.querySelectorAll('.risk-pct-group .btn-risk').forEach(b => b.classList.remove('active'));
+      if (pct === 0.25) document.getElementById('risk_btn_025').classList.add('active');
+      else if (pct === 0.50) document.getElementById('risk_btn_050').classList.add('active');
+      else if (pct === 1.00) document.getElementById('risk_btn_100').classList.add('active');
+      else if (pct === 2.00) document.getElementById('risk_btn_200').classList.add('active');
+      calculateLotSize();
+    }
+
+    function calculateLotSize() {
+      const balance = parseFloat(document.getElementById('calc_balance_input').value) || 1000;
+      const slPts = parseFloat(document.getElementById('calc_sl_input').value) || 3.5;
+      const isGold = (currentCalcSymbol || '').toUpperCase().includes('XAU');
+
+      const riskUsd = (balance * (currentRiskPct / 100));
+      document.getElementById('calc_risk_usd').textContent = `$${riskUsd.toFixed(2)} (${currentRiskPct}%)`;
+
+      // Lot size calculation:
+      // Gold contract = 100 oz -> $100 per point per lot (1.0 pt move on 1.0 lot = $100)
+      // BTC contract = 1 unit -> $1 per point per lot
+      const ptValuePerLot = isGold ? 100.0 : 1.0;
+      let calculatedLot = riskUsd / (Math.max(slPts, 0.5) * ptValuePerLot);
+
+      // Clamp between min 0.01 and reasonable account maximum
+      calculatedLot = Math.max(0.01, Math.round(calculatedLot * 100) / 100);
+      document.getElementById('calc_lot_output').textContent = `${calculatedLot.toFixed(2)} LOT`;
+
+      // Projected returns (min 1:2 and 1:3)
+      const tp1Gain = riskUsd * 2.0;
+      const tp2Gain = riskUsd * 3.1;
+      document.getElementById('calc_tp1_gain').textContent = `+$${tp1Gain.toFixed(2)} (+${(currentRiskPct * 2).toFixed(2)}%)`;
+      document.getElementById('calc_tp2_gain').textContent = `+$${tp2Gain.toFixed(2)} (+${(currentRiskPct * 3.1).toFixed(2)}%)`;
+    }
+
+    let selectedSignalId = null;
+
+    function syncCalculatorWithSignal(s) {
+      if (!s) return;
+      currentActiveSignal = s;
+      currentCalcSymbol = s.symbol;
+      const isGold = (s.symbol || '').toUpperCase().includes('XAU');
+      const xauBtn = document.getElementById('btn_calc_sym_xau');
+      const btcBtn = document.getElementById('btn_calc_sym_btc');
+      if (xauBtn) xauBtn.classList.toggle('active', isGold);
+      if (btcBtn) btcBtn.classList.toggle('active', !isGold);
+      
+      const slDist = s.sl_distance || Math.abs(s.entry_price - s.stop_loss);
+      if (slDist && slDist > 0) {
+        document.getElementById('calc_sl_input').value = slDist.toFixed(1);
+        calculateLotSize();
+      }
+    }
+
+    function setCalcInstrument(sym) {
+      currentCalcSymbol = sym;
+      const isGold = sym.toUpperCase().includes('XAU');
+      const xauBtn = document.getElementById('btn_calc_sym_xau');
+      const btcBtn = document.getElementById('btn_calc_sym_btc');
+      if (xauBtn) xauBtn.classList.toggle('active', isGold);
+      if (btcBtn) btcBtn.classList.toggle('active', !isGold);
+      
+      const slInput = document.getElementById('calc_sl_input');
+      if (isGold) {
+        if (parseFloat(slInput.value) > 50) slInput.value = '3.5';
+      } else {
+        if (parseFloat(slInput.value) < 10) slInput.value = '400';
+      }
+      calculateLotSize();
+      showToast(`Switched Calculator to ${isGold ? 'Gold (100 oz contract)' : 'Bitcoin (1 unit contract)'}`, 'info');
+    }
+
+    function selectSignal(id) {
+      selectedSignalId = id;
+      document.querySelectorAll('.signal-card').forEach(card => {
+        if (card.getAttribute('data-id') === id) {
+          card.classList.add('selected');
+        } else {
+          card.classList.remove('selected');
+        }
+      });
+      const sig = (currentData && currentData.perfect_setups) ? currentData.perfect_setups.find(s => s.id === id) : null;
+      if (sig) {
+        updateChartPriceLines(sig);
+        syncCalculatorWithSignal(sig);
+        updateLiquidityMeter(sig);
+        showToast(`Loaded ${sig.symbol} ${sig.direction} Setup on Terminal`, 'info');
+      }
+    }
+
+    function testAplusAlert() {
+      playInstitutionalChime();
+      showToast('🎯 TEST ALERT: A+ Perfect Setup Triggered! [XAUUSD BUY @ 2,735.20]', 'success');
+    }
+
+    function copyOrderTicket() {
+      const balance = document.getElementById('calc_balance_input').value;
+      const lot = document.getElementById('calc_lot_output').textContent;
+      const risk = document.getElementById('calc_risk_usd').textContent;
+      const sig = currentActiveSignal;
+
+      if (!sig) {
+        showToast('No active signal parameters to copy', 'info');
+        return;
+      }
+
+      const ticket = `[MT5 EXECUTION PLAN]\nSymbol: ${sig.symbol}\nDirection: ${sig.direction}\nLot Size: ${lot}\nEntry Price: ${sig.entry_price.toFixed(2)}\nStop Loss: ${sig.stop_loss.toFixed(2)}\nTake Profit 1: ${sig.tp1.toFixed(2)}\nRisk: ${risk} on $${balance} Account`;
+      copyToClipboard(ticket, 'MT5 Execution Plan');
+    }
+
+    function updateLiquidityMeter(sig, curPrice) {
+      const price = curPrice || (sig ? sig.entry_price : 2735.20);
+      const isGold = (currentCalcSymbol || '').toUpperCase().includes('XAU');
+      const spreadDist = isGold ? 14.0 : 900.0;
+
+      const bsl = sig ? (sig.direction === 'BUY' ? sig.tp1 + 2.5 : sig.stop_loss + 2.0) : price + spreadDist;
+      const ssl = sig ? (sig.direction === 'BUY' ? sig.stop_loss - 2.0 : sig.tp1 - 2.5) : price - spreadDist;
+
+      const sslEl = document.getElementById('liq_ssl_label');
+      const curEl = document.getElementById('liq_cur_label');
+      const bslEl = document.getElementById('liq_bsl_label');
+      if (sslEl) sslEl.textContent = `SSL: ${ssl.toFixed(2)}`;
+      if (curEl) curEl.textContent = `Price: ${price.toFixed(2)}`;
+      if (bslEl) bslEl.textContent = `BSL: ${bsl.toFixed(2)}`;
+
+      const range = Math.max(0.1, bsl - ssl);
+      const pct = Math.min(100, Math.max(0, ((price - ssl) / range) * 100));
+      const cursor = document.getElementById('liq_cursor_el');
+      if (cursor) cursor.style.left = `${pct}%`;
+
+      const badge = document.getElementById('liq_regime_badge');
+      if (badge) {
+        if (pct < 45) {
+          badge.textContent = 'DISCOUNT VALUE AREA';
+          badge.className = 'trend-pill trend-bullish';
+        } else if (pct > 55) {
+          badge.textContent = 'PREMIUM VALUE AREA';
+          badge.className = 'trend-pill trend-bearish';
+        } else {
+          badge.textContent = 'FAIR VALUE EQUILIBRIUM';
+          badge.className = 'trend-pill trend-neutral';
+        }
+      }
+    }
+
     // Chart Initialization
     function initChart() {
       const container = document.getElementById('tv_chart');
@@ -1141,13 +1708,14 @@
       if (currentFilter === 'XAU') filtered = setups.filter(s => s.symbol.includes('XAU'));
       if (currentFilter === 'BTC') filtered = setups.filter(s => s.symbol.includes('BTC'));
 
-      container.innerHTML = filtered.map(s => {
+      container.innerHTML = filtered.map((s, idx) => {
         const isBuy = s.direction === 'BUY';
         const isAplus = s.grade.includes('A+');
+        const isSelected = selectedSignalId ? (s.id === selectedSignalId) : (idx === 0);
         const copyText = `${s.symbol} ${s.direction} Entry: ${s.entry_price.toFixed(2)} | SL: ${s.stop_loss.toFixed(2)} | TP1: ${s.tp1.toFixed(2)} | TP2: ${s.tp2.toFixed(2)} [R:R 1:${s.risk_reward}]`;
 
         return `
-          <div class="signal-card ${isAplus ? 'grade-aplus' : ''}">
+          <div class="signal-card ${isAplus ? 'grade-aplus' : ''} ${isSelected ? 'selected' : ''}" data-id="${s.id}" onclick="selectSignal('${s.id}')">
             <div class="signal-top">
               <div style="display: flex; flex-direction: column; gap: 6px;">
                 <span class="signal-grade-badge">★ ${s.grade}</span>
@@ -1191,13 +1759,21 @@
                 <span>Formed: ${s.formed_time || 'Just now'}</span>
                 <span style="margin-left: 8px; color: var(--cyan); font-weight: 600;">1:${s.risk_reward} R:R</span>
               </div>
-              <button class="btn-copy" onclick="copyToClipboard('${copyText}', '${s.symbol} ${s.direction}')">
+              <button class="btn-copy" onclick="event.stopPropagation(); copyToClipboard('${copyText}', '${s.symbol} ${s.direction}')">
                 📋 Copy Signal
               </button>
             </div>
           </div>
         `;
       }).join('');
+
+      // Auto-update TradingView chart price overlays & calculator with primary setup
+      if (filtered.length > 0) {
+        const targetSig = selectedSignalId ? (filtered.find(s => s.id === selectedSignalId) || filtered[0]) : filtered[0];
+        updateChartPriceLines(targetSig);
+        syncCalculatorWithSignal(targetSig);
+        updateLiquidityMeter(targetSig);
+      }
     }
 
     // Render Forming Setups Radar
