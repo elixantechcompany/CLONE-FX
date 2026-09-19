@@ -20,6 +20,15 @@ class TestBrightFundedExclusiveProtection(unittest.TestCase):
     def setUp(self):
         with open("config/config.yaml", "r") as f:
             self.config = yaml.safe_load(f)
+        self.config["accounts"]["account_list"] = [
+            {"id": "account_a", "name": "Account A", "type": "BRIGHTFUNDED", "balance": 1000.0, "mode": "INDEPENDENT", "is_active": True},
+            {"id": "account_b", "name": "Account B", "type": "BRIGHTFUNDED", "balance": 1000.0, "mode": "INDEPENDENT", "is_active": True},
+            {"id": "account_c", "name": "Account C", "type": "PERSONAL", "balance": 20.0, "mode": "COPY_MASTER", "copy_enabled": True, "is_active": True},
+            {"id": "account_d", "name": "Account D", "type": "PERSONAL", "balance": 20.0, "mode": "COPY_FOLLOWER", "copy_enabled": True, "copy_source": "account_c", "is_active": True},
+        ]
+        self.config["copy_engine"]["enabled"] = True
+        self.config["copy_engine"]["master_account_id"] = "account_c"
+        self.config["copy_engine"]["follower_account_id"] = "account_d"
 
     # TEST 1: Correct account identification
     def test_01_account_identification(self):

@@ -83,7 +83,10 @@ class DashboardExporter:
             active_symbols = {"XAUUSD": "XAUUSDm", "BTCUSD": "BTCUSDm"}
 
         fleet = self.account_manager.get_fleet_summary()
-        accounts_summary = fleet if accounts_summary is None or len(accounts_summary) == 0 else accounts_summary
+        if (accounts_summary is None or len(accounts_summary) == 0) and account_summary is not None:
+            accounts_summary = [account_summary]
+        elif accounts_summary is None or len(accounts_summary) == 0:
+            accounts_summary = fleet
         all_positions = all_positions or []
 
         try:
@@ -261,7 +264,7 @@ class DashboardExporter:
                     "margin_free": round(float(primary_acc.get("free_margin", primary_acc.get("margin_free", 0.0))), 2),
                 },
                 "performance": {
-                    "total_day_pnl": round(float(primary_acc.get("daily_pnl", 0.0)), 2),
+                    "total_day_pnl": round(float((daily_perf or {}).get("total_day_pnl", primary_acc.get("daily_pnl", 0.0))), 2),
                 },
                 "market_state": {
                     "daily_trend": primary_struct.get("macro_bias", daily_trend or "RANGING"),

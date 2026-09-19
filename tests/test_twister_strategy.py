@@ -226,8 +226,11 @@ class TestTwisterProStrategy(unittest.TestCase):
 
         # Session time at 15:00 UTC
         now_utc = datetime.datetime(2026, 9, 4, 15, 0, 0, tzinfo=datetime.timezone.utc)
+        class MockTick:
+            bid = 2575.0
+            ask = 2575.0
         sig, entry, sl, tp, cid, zid, score, reason = self.strategy.generate_signal(
-            "XAUUSDm", current_spread=25, now_utc=now_utc
+            "XAUUSDm", current_spread=25, now_utc=now_utc, current_tick=MockTick()
         )
 
         self.assertEqual(sig, "BUY")

@@ -95,6 +95,9 @@ class TestFourAccountArchitecture(unittest.TestCase):
     def setUp(self):
         with open("config/config.yaml", "r") as f:
             self.config = yaml.safe_load(f)
+        self.config["copy_engine"]["enabled"] = True
+        self.config["copy_engine"]["master_account_id"] = "account_c"
+        self.config["copy_engine"]["follower_account_id"] = "account_d"
 
         self.account_manager = MultiAccountManager(self.config)
 
