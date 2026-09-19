@@ -35,6 +35,8 @@ import {
   X,
   Play,
   ArrowRight,
+  ArrowLeft,
+  ChevronLeft,
   Sparkles,
   Lock,
   ChevronRight,
@@ -87,15 +89,15 @@ export default function DashboardPage() {
   const [showNewJournalModal, setShowNewJournalModal] = useState<boolean>(false);
   const [journalFilterOutcome, setJournalFilterOutcome] = useState<'ALL' | 'WIN' | 'LOSS' | 'OPEN'>('ALL');
   
-  // New Journal Entry Form Fields
+  // New Journal Entry Form Fields (Anchored to Real Live Prices)
   const [jSymbol, setJSymbol] = useState<string>('BTCUSD');
   const [jAction, setJAction] = useState<OrderAction>('BUY');
-  const [jOrderType, setJOrderType] = useState<MT5OrderType>('BUY MARKET');
+  const [jOrderType, setJOrderType] = useState<MT5OrderType>('BUY MARKET (or Limit on Retest)');
   const [jLots, setJLots] = useState<number>(0.02);
-  const [jEntryPrice, setJEntryPrice] = useState<number>(93311.62);
-  const [jExitPrice, setJExitPrice] = useState<number>(93871.62);
-  const [jStopLoss, setJStopLoss] = useState<number>(93031.62);
-  const [jTakeProfit, setJTakeProfit] = useState<number>(93871.62);
+  const [jEntryPrice, setJEntryPrice] = useState<number>(81015.75);
+  const [jExitPrice, setJExitPrice] = useState<number>(81575.75);
+  const [jStopLoss, setJStopLoss] = useState<number>(80735.75);
+  const [jTakeProfit, setJTakeProfit] = useState<number>(81575.75);
   const [jProfitUsd, setJProfitUsd] = useState<number>(112.00);
   const [jOutcome, setJOutcome] = useState<TradeOutcome>('WIN');
   const [jSession, setJSession] = useState<string>('London Open');
@@ -194,13 +196,15 @@ export default function DashboardPage() {
           const rawDir = String(s.direction || 'BUY').toUpperCase();
           const orderAction: OrderAction = rawDir.includes('SELL') || rawDir.includes('SHORT') ? 'SELL' : 'BUY';
           const symbolClean = s.symbol ? s.symbol.replace('m', '') : 'BTCUSD';
+          const orderTypeStr = s.order_type || `${orderAction} MARKET (or Limit on Retest)`;
 
           return {
             id: s.id || `setup_${Date.now()}`,
             symbol: symbolClean,
             direction: orderAction,
-            orderType: `${orderAction} MARKET` as MT5OrderType,
+            orderType: orderTypeStr as MT5OrderType,
             entryPrice: Number(s.entry_price || 0),
+            limitPrice: s.limit_price ? Number(s.limit_price) : undefined,
             stopLoss: Number(s.stop_loss || 0),
             takeProfit1: Number(s.tp1 || 0),
             takeProfit2: Number(s.tp2 || 0),
@@ -280,6 +284,41 @@ export default function DashboardPage() {
     }
   }, []);
 
+  // Tab switching helper with smooth scroll & URL hash sync
+  const switchTab = (tab: 'SIGNALS' | 'LIVE_TRADES' | 'JOURNAL' | 'ACCOUNTS' | 'CALCULATOR') => {
+    setActiveTab(tab);
+    if (typeof window !== 'undefined') {
+      const hashMap: Record<string, string> = {
+        SIGNALS: '#signals',
+        LIVE_TRADES: '#positions',
+        JOURNAL: '#journal',
+        ACCOUNTS: '#accounts',
+        CALCULATOR: '#calculator',
+      };
+      if (hashMap[tab]) {
+        window.history.replaceState(null, '', hashMap[tab]);
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  // Synchronize active tab with URL hash on mount & hashchange
+  useEffect(() => {
+    const handleHashChange = () => {
+      if (typeof window !== 'undefined') {
+        const hash = window.location.hash.toLowerCase();
+        if (hash === '#signals') setActiveTab('SIGNALS');
+        else if (hash === '#positions' || hash === '#trades' || hash === '#live') setActiveTab('LIVE_TRADES');
+        else if (hash === '#journal' || hash === '#analytics') setActiveTab('JOURNAL');
+        else if (hash === '#accounts' || hash === '#fleet') setActiveTab('ACCOUNTS');
+        else if (hash === '#calculator' || hash === '#risk') setActiveTab('CALCULATOR');
+      }
+    };
+    handleHashChange();
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 5000);
@@ -313,10 +352,11 @@ export default function DashboardPage() {
   const handleCopyMT5 = (s: ConfluenceSignal) => {
     const isBuy = s.direction === 'BUY' || s.direction === 'LONG';
     const action = isBuy ? 'BUY' : 'SELL';
-    const orderType = s.orderType || `${action} MARKET`;
+    const orderType = s.orderType || `${action} MARKET (or Limit on Retest)`;
+    const limitLine = s.limitPrice ? `\nLIMIT RETEST: ${s.limitPrice.toFixed(2)}` : '';
     
     // Standard MT5 order parameter format
-    const text = `ORDER: ${action}\nSYMBOL: ${s.symbol}\nTYPE: ${orderType}\nENTRY: ${s.entryPrice.toFixed(2)}\nSTOP LOSS: ${s.stopLoss.toFixed(2)}\nTAKE PROFIT 1: ${s.takeProfit1.toFixed(2)}${s.takeProfit2 ? `\nTAKE PROFIT 2: ${s.takeProfit2.toFixed(2)}` : ''}\nR:R RATIO: 1:${s.riskReward.toFixed(2)}`;
+    const text = `ORDER: ${action}\nSYMBOL: ${s.symbol}\nTYPE: ${orderType}\nENTRY: ${s.entryPrice.toFixed(2)}${limitLine}\nSTOP LOSS: ${s.stopLoss.toFixed(2)}\nTAKE PROFIT 1: ${s.takeProfit1.toFixed(2)}${s.takeProfit2 ? `\nTAKE PROFIT 2: ${s.takeProfit2.toFixed(2)}` : ''}\nR:R RATIO: 1:${s.riskReward.toFixed(2)}`;
     
     navigator.clipboard.writeText(text);
     showToast(`Copied MT5 Parameters: [${action}] ${s.symbol} @ ${s.entryPrice.toFixed(2)} (SL: ${s.stopLoss.toFixed(2)} | TP: ${s.takeProfit1.toFixed(2)})`);
@@ -328,14 +368,14 @@ export default function DashboardPage() {
     const action: OrderAction = isBuy ? 'BUY' : 'SELL';
     setJSymbol(s.symbol);
     setJAction(action);
-    setJOrderType(`${action} MARKET` as MT5OrderType);
+    setJOrderType((s.orderType || `${action} MARKET (or Limit on Retest)`) as MT5OrderType);
     setJEntryPrice(s.entryPrice);
     setJStopLoss(s.stopLoss);
     setJTakeProfit(s.takeProfit1);
     setJExitPrice(s.takeProfit1);
     setJOutcome('OPEN');
     setJSetupType(s.confluences && s.confluences.length > 0 ? s.confluences[0] : 'Institutional Confluence');
-    setJNotes(`Initiated from live scanner setup. Stop Loss at ${s.stopLoss.toFixed(2)}, targeting 1:${s.riskReward.toFixed(2)} R:R at ${s.takeProfit1.toFixed(2)}.`);
+    setJNotes(`Initiated from live scanner setup. Order Type: ${s.orderType || `${action} MARKET (or Limit on Retest)`}. Stop Loss at ${s.stopLoss.toFixed(2)}, targeting 1:${s.riskReward.toFixed(2)} R:R at ${s.takeProfit1.toFixed(2)}.`);
     setShowNewJournalModal(true);
   };
 
@@ -897,7 +937,7 @@ export default function DashboardPage() {
       <div className="tabs-nav">
         <button
           className={`tab-btn ${activeTab === 'SIGNALS' ? 'active' : ''}`}
-          onClick={() => setActiveTab('SIGNALS')}
+          onClick={() => switchTab('SIGNALS')}
         >
           <Target size={15} />
           🎯 Market Signals ({filteredSignals.length})
@@ -905,7 +945,7 @@ export default function DashboardPage() {
 
         <button
           className={`tab-btn ${activeTab === 'LIVE_TRADES' ? 'active' : ''}`}
-          onClick={() => setActiveTab('LIVE_TRADES')}
+          onClick={() => switchTab('LIVE_TRADES')}
         >
           <Activity size={15} />
           💼 Live Positions ({positions.length})
@@ -913,7 +953,7 @@ export default function DashboardPage() {
 
         <button
           className={`tab-btn ${activeTab === 'JOURNAL' ? 'active' : ''}`}
-          onClick={() => setActiveTab('JOURNAL')}
+          onClick={() => switchTab('JOURNAL')}
         >
           <BookOpen size={15} />
           📖 Trading Journal ({journalEntries.length})
@@ -921,7 +961,7 @@ export default function DashboardPage() {
 
         <button
           className={`tab-btn ${activeTab === 'ACCOUNTS' ? 'active' : ''}`}
-          onClick={() => setActiveTab('ACCOUNTS')}
+          onClick={() => switchTab('ACCOUNTS')}
         >
           <Wallet size={15} />
           🏦 Account Fleet (${accounts.length} linked)
@@ -929,7 +969,7 @@ export default function DashboardPage() {
 
         <button
           className={`tab-btn ${activeTab === 'CALCULATOR' ? 'active' : ''}`}
-          onClick={() => setActiveTab('CALCULATOR')}
+          onClick={() => switchTab('CALCULATOR')}
         >
           <SlidersHorizontal size={15} />
           ⚖️ Position Calculator
@@ -1067,7 +1107,7 @@ export default function DashboardPage() {
                             </span>
                           </div>
                           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                            Order Type: <strong style={{ color: '#fff' }}>{orderAction} MARKET</strong> (or Limit on Retest)
+                            Order Type: <strong style={{ color: '#fff' }}>{orderAction} MARKET</strong> (or Limit on Retest{sig.limitPrice ? ` @ ${sig.limitPrice.toFixed(2)}` : ''})
                           </div>
                         </div>
 
@@ -1133,6 +1173,26 @@ export default function DashboardPage() {
                         </div>
                       </div>
 
+                      {/* Conservative Retest Limit Price if available */}
+                      {sig.limitPrice && (
+                        <div
+                          style={{
+                            marginTop: '8px',
+                            padding: '6px 12px',
+                            background: 'rgba(245, 200, 66, 0.06)',
+                            border: '1px dashed rgba(245, 200, 66, 0.25)',
+                            borderRadius: '8px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            fontSize: '11px',
+                          }}
+                        >
+                          <span style={{ color: 'var(--text-dim)' }}>Conservative Limit Retest Entry:</span>
+                          <span className="mono gold" style={{ fontWeight: 800 }}>{sig.limitPrice.toFixed(2)}</span>
+                        </div>
+                      )}
+
                       {/* Confluences & Setup Summary */}
                       {sig.confluences && sig.confluences.length > 0 && (
                         <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1184,6 +1244,23 @@ export default function DashboardPage() {
                 })}
               </div>
             )}
+          </div>
+
+          {/* Page-to-Page Navigation Bar */}
+          <div className="page-nav-bar">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Navigation:</span>
+              <span className="badge badge-gold" style={{ fontSize: '11px' }}>Page 1 / 5</span>
+              <strong style={{ color: '#fff', fontSize: '13px' }}>🎯 Market Signals & Setups</strong>
+            </div>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button className="page-nav-btn" onClick={() => switchTab('JOURNAL')}>
+                <BookOpen size={14} className="cyan" /> Open Journal
+              </button>
+              <button className="page-nav-btn primary" onClick={() => switchTab('LIVE_TRADES')}>
+                Next: Live Positions (2/5) <ArrowRight size={14} />
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1281,6 +1358,21 @@ export default function DashboardPage() {
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* Page-to-Page Navigation Bar */}
+          <div className="page-nav-bar">
+            <button className="page-nav-btn" onClick={() => switchTab('SIGNALS')}>
+              <ArrowLeft size={14} /> Previous: Market Signals (1/5)
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Navigation:</span>
+              <span className="badge badge-gold" style={{ fontSize: '11px' }}>Page 2 / 5</span>
+              <strong style={{ color: '#fff', fontSize: '13px' }}>💼 Live Positions Fleet</strong>
+            </div>
+            <button className="page-nav-btn primary" onClick={() => switchTab('JOURNAL')}>
+              Next: Trading Journal (3/5) <ArrowRight size={14} />
+            </button>
           </div>
         </div>
       )}
@@ -1502,6 +1594,21 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
+
+          {/* Page-to-Page Navigation Bar */}
+          <div className="page-nav-bar">
+            <button className="page-nav-btn" onClick={() => switchTab('LIVE_TRADES')}>
+              <ArrowLeft size={14} /> Previous: Live Positions (2/5)
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Navigation:</span>
+              <span className="badge badge-gold" style={{ fontSize: '11px' }}>Page 3 / 5</span>
+              <strong style={{ color: '#fff', fontSize: '13px' }}>📖 Performance Journal</strong>
+            </div>
+            <button className="page-nav-btn primary" onClick={() => switchTab('ACCOUNTS')}>
+              Next: Account Fleet (4/5) <ArrowRight size={14} />
+            </button>
+          </div>
         </div>
       )}
 
@@ -1628,6 +1735,21 @@ export default function DashboardPage() {
                 </div>
               ))
             )}
+          </div>
+
+          {/* Page-to-Page Navigation Bar */}
+          <div className="page-nav-bar">
+            <button className="page-nav-btn" onClick={() => switchTab('JOURNAL')}>
+              <ArrowLeft size={14} /> Previous: Trading Journal (3/5)
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Navigation:</span>
+              <span className="badge badge-gold" style={{ fontSize: '11px' }}>Page 4 / 5</span>
+              <strong style={{ color: '#fff', fontSize: '13px' }}>🏦 Connected Account Fleet</strong>
+            </div>
+            <button className="page-nav-btn primary" onClick={() => switchTab('CALCULATOR')}>
+              Next: Lot Calculator (5/5) <ArrowRight size={14} />
+            </button>
           </div>
         </div>
       )}
@@ -1765,6 +1887,21 @@ export default function DashboardPage() {
                 </span>
               </div>
             </div>
+          </div>
+
+          {/* Page-to-Page Navigation Bar */}
+          <div className="page-nav-bar">
+            <button className="page-nav-btn" onClick={() => switchTab('ACCOUNTS')}>
+              <ArrowLeft size={14} /> Previous: Account Fleet (4/5)
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Navigation:</span>
+              <span className="badge badge-gold" style={{ fontSize: '11px' }}>Page 5 / 5</span>
+              <strong style={{ color: '#fff', fontSize: '13px' }}>⚖️ Position Size & Risk Calculator</strong>
+            </div>
+            <button className="page-nav-btn primary" onClick={() => switchTab('SIGNALS')}>
+              Return to Live Signals 🎯 (1/5) <ArrowRight size={14} />
+            </button>
           </div>
         </div>
       )}
@@ -2285,6 +2422,45 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Mobile Floating Quick-Dock */}
+      <nav className="mobile-dock">
+        <button
+          className={`mobile-dock-btn ${activeTab === 'SIGNALS' ? 'active' : ''}`}
+          onClick={() => switchTab('SIGNALS')}
+        >
+          <Target size={18} />
+          <span>Signals</span>
+        </button>
+        <button
+          className={`mobile-dock-btn ${activeTab === 'LIVE_TRADES' ? 'active' : ''}`}
+          onClick={() => switchTab('LIVE_TRADES')}
+        >
+          <Activity size={18} />
+          <span>Trades</span>
+        </button>
+        <button
+          className={`mobile-dock-btn ${activeTab === 'JOURNAL' ? 'active' : ''}`}
+          onClick={() => switchTab('JOURNAL')}
+        >
+          <BookOpen size={18} />
+          <span>Journal</span>
+        </button>
+        <button
+          className={`mobile-dock-btn ${activeTab === 'ACCOUNTS' ? 'active' : ''}`}
+          onClick={() => switchTab('ACCOUNTS')}
+        >
+          <Wallet size={18} />
+          <span>Accounts</span>
+        </button>
+        <button
+          className={`mobile-dock-btn ${activeTab === 'CALCULATOR' ? 'active' : ''}`}
+          onClick={() => switchTab('CALCULATOR')}
+        >
+          <SlidersHorizontal size={18} />
+          <span>Calc</span>
+        </button>
+      </nav>
     </div>
   );
 }

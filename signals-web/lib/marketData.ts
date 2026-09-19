@@ -117,8 +117,8 @@ export function generateSyntheticCandles(
   count: number = 60
 ): Candle[] {
   const isGold = symbol === 'XAUUSD';
-  const basePrice = isGold ? 2735.0 : 92500.0;
-  const volatility = isGold ? 1.2 : 120.0;
+  const basePrice = isGold ? 2685.0 : 81015.75;
+  const volatility = isGold ? 1.2 : 65.0;
   const tfMinutes = timeframe === '4h' ? 240 : timeframe === '1h' ? 60 : 30;
 
   const nowSeconds = Math.floor(Date.now() / 1000);

@@ -342,10 +342,16 @@ export function runConfluenceScan(bundle: MarketDataBundle): ConfluenceSignal | 
     `Prop Firm Filter: 3/3 Genuine Multi-Timeframe Alignment Confirmed`,
   ];
 
+  const limitPrice = direction === 'BUY'
+    ? Number((entryPrice - slDistance * 0.25).toFixed(2))
+    : Number((entryPrice + slDistance * 0.25).toFixed(2));
+
   return {
     symbol,
     direction,
+    orderType: `${direction} MARKET (or Limit on Retest)` as MT5OrderType,
     entryPrice,
+    limitPrice,
     stopLoss,
     takeProfit1,
     takeProfit2,

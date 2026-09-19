@@ -37,6 +37,8 @@ class PerfectSetup:
     setup_summary: str
     formed_time: str
     timestamp: int
+    order_type: str = "BUY MARKET (or Limit on Retest)"
+    limit_price: float = 0.0
 
 
 class PerfectSetupDetector:
@@ -221,6 +223,7 @@ class PerfectSetupDetector:
             grade = "A+ PERFECT SETUP" if score >= self.min_score_perfect else ("GRADE A" if score >= self.min_score_grade_a else "GRADE B")
             setup_id = f"SETUP_BUY_{symbol}_{int(time.time())}"
 
+            limit_retest = round(sweep_price + (0.30 if is_gold else 15.0), 2)
             setup_dict = asdict(PerfectSetup(
                 id=setup_id,
                 symbol=symbol,
@@ -241,6 +244,8 @@ class PerfectSetupDetector:
                 setup_summary=f"[BUY {grade}] Swept SSL at {sweep_price:.2f} -> Target 1:2.0 R:R at {tp1:.2f} (SL: {sl:.2f})",
                 formed_time=datetime.datetime.utcnow().strftime("%H:%M:%S UTC"),
                 timestamp=int(time.time()),
+                order_type="BUY MARKET (or Limit on Retest)",
+                limit_price=limit_retest,
             ))
 
             if has_break_confirm and score >= self.min_score_grade_a:
@@ -327,6 +332,7 @@ class PerfectSetupDetector:
             grade = "A+ PERFECT SETUP" if score >= self.min_score_perfect else ("GRADE A" if score >= self.min_score_grade_a else "GRADE B")
             setup_id = f"SETUP_SELL_{symbol}_{int(time.time())}"
 
+            limit_retest = round(sweep_price - (0.30 if is_gold else 15.0), 2)
             setup_dict = asdict(PerfectSetup(
                 id=setup_id,
                 symbol=symbol,
@@ -347,6 +353,8 @@ class PerfectSetupDetector:
                 setup_summary=f"[SELL {grade}] Swept BSL at {sweep_price:.2f} -> Target 1:2.0 R:R at {tp1:.2f} (SL: {sl:.2f})",
                 formed_time=datetime.datetime.utcnow().strftime("%H:%M:%S UTC"),
                 timestamp=int(time.time()),
+                order_type="SELL MARKET (or Limit on Retest)",
+                limit_price=limit_retest,
             ))
 
             if has_break_confirm and score >= self.min_score_grade_a:
@@ -392,6 +400,8 @@ class PerfectSetupDetector:
                         "setup_summary": f"[BUY Continuation] Retest after Bullish BOS -> Target {tp1:.2f} (SL: {sl:.2f})",
                         "formed_time": datetime.datetime.utcnow().strftime("%H:%M:%S UTC"),
                         "timestamp": int(time.time()),
+                        "order_type": "BUY MARKET (or Limit on Retest)",
+                        "limit_price": round(entry - 15.0, 2),
                     })
 
             elif "BEARISH" in macro_bias and cur_price > 0:
@@ -427,6 +437,8 @@ class PerfectSetupDetector:
                         "setup_summary": f"[SELL Continuation] Retest after Bearish BOS -> Target {tp1:.2f} (SL: {sl:.2f})",
                         "formed_time": datetime.datetime.utcnow().strftime("%H:%M:%S UTC"),
                         "timestamp": int(time.time()),
+                        "order_type": "SELL MARKET (or Limit on Retest)",
+                        "limit_price": round(entry + 15.0, 2),
                     })
 
         # Update historical archive

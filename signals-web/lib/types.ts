@@ -40,7 +40,7 @@ export interface TriggerEvaluation {
 
 export type SignalDirection = 'BUY' | 'SELL' | 'LONG' | 'SHORT';
 export type OrderAction = 'BUY' | 'SELL';
-export type MT5OrderType = 'BUY MARKET' | 'BUY LIMIT' | 'BUY STOP' | 'SELL MARKET' | 'SELL LIMIT' | 'SELL STOP';
+export type MT5OrderType = 'BUY MARKET' | 'BUY LIMIT' | 'BUY STOP' | 'SELL MARKET' | 'SELL LIMIT' | 'SELL STOP' | 'BUY MARKET (or Limit on Retest)' | 'SELL MARKET (or Limit on Retest)' | string;
 export type ConfluenceScore = '3/3' | '2/3' | 'A+ PERFECT SETUP' | 'GRADE B' | 'GRADE C';
 export type TradeOutcome = 'WIN' | 'LOSS' | 'BREAKEVEN' | 'OPEN';
 
@@ -49,6 +49,7 @@ export interface ConfluenceSignal {
   symbol: string;
   direction: SignalDirection; // 'BUY' or 'SELL'
   orderType?: MT5OrderType;
+  limitPrice?: number;
   entryPrice: number;
   stopLoss: number;
   takeProfit1: number;

@@ -244,7 +244,14 @@ class DashboardExporter:
             temp_file = self.data_file + ".tmp"
             with open(temp_file, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2, ensure_ascii=False)
-            os.replace(temp_file, self.data_file)
+            
+            # Safe atomic replace with retry on Windows
+            for attempt in range(5):
+                try:
+                    os.replace(temp_file, self.data_file)
+                    break
+                except PermissionError:
+                    time.sleep(0.05)
 
         except Exception as e:
             logger.warning(f"Error exporting dashboard data: {e}", exc_info=True)
