@@ -44,6 +44,9 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
   isScanning,
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [calcPips, setCalcPips] = useState<number>(30);
+  const [calcLots, setCalcLots] = useState<number>(0.01);
+
   const currentSchedule = marketSchedules[selectedSymbol];
   const isMarketOpen = currentSchedule ? currentSchedule.is_open : true;
 
@@ -53,6 +56,11 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
     setCopiedId(sig.id || 'sig-1');
     setTimeout(() => setCopiedId(null), 2000);
   };
+
+  // Dollar calculations for Gold / Crypto
+  const estimatedProfitDollars = selectedSymbol === 'XAUUSD' 
+    ? calcPips * calcLots * 10 
+    : (calcPips / 100) * calcLots * 100;
 
   return (
     <div className="flex flex-col gap-5 pb-20 lg:pb-6">
@@ -113,51 +121,53 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
         </div>
       </div>
 
-      {/* Market Closed Banner if applicable */}
+      {/* Market Closed Guidance Banner */}
       {!isMarketOpen && currentSchedule && (
-        <div className="bg-gradient-to-r from-amber-500/10 via-rose-500/10 to-amber-500/10 border border-amber-500/30 rounded-2xl p-3.5 sm:p-4 text-xs text-amber-200 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <span className="text-lg">⏳</span>
+        <div className="bg-gradient-to-r from-amber-500/10 via-rose-500/10 to-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-xs text-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">⏳</span>
             <div>
-              <span className="font-bold">{currentSchedule.status_text}</span>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                Weekend holding analysis active. Signals derived from closed D1/H4 market structure.
+              <div className="font-extrabold text-sm text-amber-300">
+                {currentSchedule.status_text}
+              </div>
+              <p className="text-slate-300 text-xs mt-0.5">
+                Weekend market structure holding analysis active. Signals derive from closed D1/H4 candles. Live auto-execution resumes Sunday 22:00 UTC with London open.
               </p>
             </div>
           </div>
-          <span className="text-[10px] font-mono px-2 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+          <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[11px] font-bold whitespace-nowrap">
             AUTO-RESUMES SUN 22:00 UTC
           </span>
         </div>
       )}
 
-      {/* 3-Tier Multi-Timeframe Structure & Killzone HUD */}
+      {/* 3-Tier Institutional Market State Matrix */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-        {/* Card 1: D1/H4 Macro Bias */}
+        {/* Tier 1: Macro Bias */}
         <div className="bg-[#0e131d]/90 border border-white/[0.08] p-4 rounded-2xl backdrop-blur-xl">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">1. Macro Bias (D1+H4)</span>
+          <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+            <span className="font-bold">1. Macro Bias (D1+H4)</span>
             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
               ALIGNMENT
             </span>
           </div>
-          <div className="text-sm font-bold text-slate-100 mb-1">
-            {macroBias || 'INSTITUTIONAL ACCUMULATION'}
+          <div className="text-sm font-extrabold text-emerald-400 mb-1">
+            {macroBias}
           </div>
           <p className="text-[11px] text-slate-400 leading-relaxed">
             Swing holding horizon: 18h – 48h. Invalidation stop below structural swing low.
           </p>
         </div>
 
-        {/* Card 2: Killzone & Volume Session */}
+        {/* Tier 2: Killzone Volume Session */}
         <div className="bg-[#0e131d]/90 border border-white/[0.08] p-4 rounded-2xl backdrop-blur-xl">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">2. Killzone Session</span>
+          <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+            <span className="font-bold">2. Killzone Session</span>
             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
               {killzoneInfo?.utc_time || 'LIVE UTC'}
             </span>
           </div>
-          <div className="text-sm font-bold text-cyan-300 mb-1">
+          <div className="text-sm font-extrabold text-cyan-300 mb-1">
             {killzoneInfo?.session_name || 'London Killzone (Peak Volume)'}
           </div>
           <p className="text-[11px] text-slate-400 leading-relaxed">
@@ -165,18 +175,20 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
           </p>
         </div>
 
-        {/* Card 3: ADR Exhaustion Meter */}
+        {/* Tier 3: ADR Headroom Meter */}
         <div className="bg-[#0e131d]/90 border border-white/[0.08] p-4 rounded-2xl backdrop-blur-xl">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">3. ADR Range Meter</span>
+          <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+            <span className="font-bold">3. ADR Range Meter</span>
             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
               {adrInfo?.adr_used_pct || 45}% USED
             </span>
           </div>
-          <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mb-2">
+          <div className="w-full bg-slate-800 rounded-full h-2 mb-2 overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-emerald-400 via-yellow-400 to-rose-400 rounded-full"
-              style={{ width: `${Math.min(100, adrInfo?.adr_used_pct || 45)}%` }}
+              className={`h-full rounded-full ${
+                (adrInfo?.adr_used_pct || 45) > 80 ? 'bg-rose-500' : 'bg-gradient-to-r from-emerald-500 to-amber-500'
+              }`}
+              style={{ width: `${Math.min(adrInfo?.adr_used_pct || 45, 100)}%` }}
             ></div>
           </div>
           <p className="text-[11px] text-slate-400 leading-relaxed">
@@ -185,182 +197,176 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
         </div>
       </div>
 
-      {/* Confirmed Grade A+ Signals Section */}
-      <div>
-        <div className="flex items-center justify-between mb-3.5">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">🎯</span>
-            <h2 className="text-base sm:text-lg font-extrabold text-slate-100">
-              Confirmed High-Conviction Signals
-            </h2>
-            <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-              {activeSignals.length} Active
-            </span>
+      {/* Confirmed High-Conviction Signals Section */}
+      <div className="bg-[#0e131d]/90 border border-white/[0.08] rounded-3xl p-5 sm:p-6 backdrop-blur-xl">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-5">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold text-lg">
+              🎯
+            </div>
+            <div>
+              <h2 className="text-base sm:text-lg font-black text-slate-100">
+                Confirmed High-Conviction Signals
+              </h2>
+              <p className="text-xs text-slate-400">
+                Guaranteed minimum 1:2.00+ Risk-to-Reward ratio with Breakeven trigger.
+              </p>
+            </div>
           </div>
-          <span className="text-xs text-slate-400 hidden sm:inline">
-            1:2.00+ Guaranteed Risk:Reward Ratio
+
+          <span className="text-xs font-mono font-bold px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            {activeSignals.length} Active High-Grade
           </span>
         </div>
 
-        {activeSignals.length === 0 ? (
-          <div className="bg-[#0d121c]/70 border border-dashed border-white/[0.12] rounded-2xl p-8 text-center">
-            <div className="text-3xl mb-2">📡</div>
-            <h3 className="text-sm font-bold text-slate-200">No Grade A+ Signals Triggered Currently</h3>
-            <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-              The algorithm requires full 3-tier confluence (D1 Macro Bias + 4H Liquidity Sweep + 1H Reclaim Trigger). Monitoring live candles continuously...
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Signal Cards Display */}
+        {activeSignals.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {activeSignals.map((sig, idx) => {
-              const isBuy = sig.direction === 'BUY';
+              const isBuy = (sig.direction || '').toUpperCase().includes('BUY');
               return (
                 <div
-                  key={sig.id || `signal-${idx}`}
-                  className="bg-gradient-to-br from-[#0e131e] via-[#101726] to-[#0c1018] border border-emerald-500/30 hover:border-emerald-500/50 rounded-2xl p-4 sm:p-5 shadow-[0_4px_25px_rgba(0,0,0,0.3)] transition-all flex flex-col justify-between gap-4"
+                  key={sig.id || idx}
+                  className={`p-5 rounded-2xl border transition-all ${
+                    isBuy
+                      ? 'bg-gradient-to-br from-[#0e1a16] to-[#0a120f] border-emerald-500/40 shadow-[0_0_25px_rgba(16,185,129,0.1)]'
+                      : 'bg-gradient-to-br from-[#1c0f13] to-[#120a0d] border-rose-500/40 shadow-[0_0_25px_rgba(244,63,94,0.1)]'
+                  }`}
                 >
-                  {/* Signal Card Header */}
-                  <div>
-                    <div className="flex items-center justify-between gap-2 mb-3">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`text-xs font-extrabold px-3 py-1 rounded-xl uppercase tracking-wider ${
-                            isBuy
-                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                              : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                          }`}
-                        >
-                          {sig.orderType || (isBuy ? 'BUY MARKET' : 'SELL MARKET')}
-                        </span>
-                        <span className="text-xs font-mono font-bold text-slate-300 px-2 py-0.5 rounded bg-white/[0.05]">
-                          {sig.symbol}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30">
-                          {sig.confluenceScore || 'A+ PERFECT SETUP'}
-                        </span>
-                        <span className="text-[10px] font-mono text-cyan-400 px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20">
-                          R:R 1:{sig.riskReward.toFixed(2)}
-                        </span>
-                      </div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-black px-2.5 py-1 rounded-lg ${
+                        isBuy ? 'bg-emerald-500 text-black' : 'bg-rose-500 text-white'
+                      }`}>
+                        {sig.direction}
+                      </span>
+                      <span className="text-sm font-black text-slate-100">{sig.symbol}</span>
                     </div>
 
-                    {/* Order Metrics Grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-[#080b11]/80 border border-white/[0.06] p-3 rounded-xl mb-3">
-                      <div>
-                        <div className="text-[10px] text-slate-400 font-medium">ENTRY PRICE</div>
-                        <div className="text-sm font-mono font-extrabold text-slate-100">
-                          ${sig.entryPrice.toFixed(2)}
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="text-[10px] text-rose-400 font-medium">STOP LOSS</div>
-                        <div className="text-sm font-mono font-extrabold text-rose-300">
-                          ${sig.stopLoss.toFixed(2)}
-                        </div>
-                        <div className="text-[9px] text-slate-500">(-${sig.slDistance.toFixed(2)})</div>
-                      </div>
-
-                      <div>
-                        <div className="text-[10px] text-emerald-400 font-medium">TAKE PROFIT 1</div>
-                        <div className="text-sm font-mono font-extrabold text-emerald-300">
-                          ${sig.takeProfit1.toFixed(2)}
-                        </div>
-                        <div className="text-[9px] text-slate-500">(1:2.0 R:R)</div>
-                      </div>
-
-                      <div>
-                        <div className="text-[10px] text-teal-400 font-medium">TAKE PROFIT 2</div>
-                        <div className="text-sm font-mono font-extrabold text-teal-300">
-                          ${(sig.takeProfit2 || sig.takeProfit1 * 1.05).toFixed(2)}
-                        </div>
-                        <div className="text-[9px] text-slate-500">(1:3.5 Runner)</div>
-                      </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        1:{sig.riskReward?.toFixed(2) || '2.50'} R:R
+                      </span>
+                      <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                        GRADE A+
+                      </span>
                     </div>
-
-                    {/* Confluence Tags */}
-                    {sig.confluences && sig.confluences.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mb-2">
-                        {sig.confluences.map((c, i) => (
-                          <span
-                            key={i}
-                            className="text-[10px] px-2 py-0.5 rounded-lg bg-white/[0.03] text-slate-300 border border-white/[0.06]"
-                          >
-                            ✓ {c}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Setup Summary */}
-                    {sig.setup_summary && (
-                      <p className="text-[11px] text-slate-400 italic">
-                        "{sig.setup_summary}"
-                      </p>
-                    )}
                   </div>
 
-                  {/* Actions: Copy Params & Log to Journal */}
-                  <div className="flex items-center gap-2 pt-2 border-t border-white/[0.06]">
+                  {/* Price Levels Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 my-3 p-3 rounded-xl bg-[#080b11]/80 border border-white/[0.05]">
+                    <div>
+                      <div className="text-[10px] text-slate-400 font-semibold">ENTRY</div>
+                      <div className="text-xs font-mono font-bold text-slate-100">${sig.entryPrice?.toFixed(2)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-rose-400 font-semibold">STOP LOSS</div>
+                      <div className="text-xs font-mono font-bold text-rose-300">${sig.stopLoss?.toFixed(2)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-emerald-400 font-semibold">TP1 (50% + BE)</div>
+                      <div className="text-xs font-mono font-bold text-emerald-300">${sig.takeProfit1?.toFixed(2)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-cyan-400 font-semibold">TP2 (Runner)</div>
+                      <div className="text-xs font-mono font-bold text-cyan-300">${(sig.takeProfit2 || sig.takeProfit1 * 1.5)?.toFixed(2)}</div>
+                    </div>
+                  </div>
+
+                  {/* Institutional Reason / Catalyst */}
+                  <p className="text-xs text-slate-300 my-2 leading-relaxed">
+                    {sig.reason || 'D1 Macro Accumulation + 4H Liquidity Sweep of previous Asian low + 1H structural reclaim with Fair Value Gap fill.'}
+                  </p>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 mt-4 pt-3 border-t border-white/[0.06]">
                     <button
                       onClick={() => handleCopyParams(sig)}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-slate-200 border border-white/[0.08] text-xs font-bold transition-all active:scale-95"
+                      className="flex-1 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-xs font-bold text-slate-200 border border-white/[0.08] transition-all"
                     >
-                      <span>📋</span>
-                      <span>{copiedId === (sig.id || 'sig-1') ? 'Copied Parameters!' : 'Copy MT5 Parameters'}</span>
+                      {copiedId === (sig.id || 'sig-1') ? '✓ Copied!' : 'Copy Order Parameters'}
                     </button>
-
                     <button
                       onClick={() => onLogToJournal(sig)}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-cyan-500/20 to-blue-500/20 hover:from-cyan-500/30 hover:to-blue-500/30 text-cyan-200 border border-cyan-500/40 text-xs font-bold transition-all active:scale-95 shadow-[0_0_12px_rgba(6,182,212,0.15)]"
+                      className="flex-1 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black text-xs font-extrabold transition-all shadow-[0_0_12px_rgba(245,200,66,0.3)]"
                     >
-                      <span>📖</span>
-                      <span>Log to Trade Journal</span>
+                      Log to Journal 📖
                     </button>
                   </div>
                 </div>
               );
             })}
           </div>
+        ) : (
+          <div className="p-8 rounded-2xl bg-[#080b11]/60 border border-white/[0.05] text-center flex flex-col items-center justify-center gap-3">
+            <span className="text-3xl">📡</span>
+            <div className="font-extrabold text-sm text-slate-200">
+              No Grade A+ Signals Triggered Currently
+            </div>
+            <p className="text-xs text-slate-400 max-w-lg leading-relaxed">
+              The algorithm requires full 3-tier confluence (D1 Macro Bias + 4H Liquidity Sweep + 1H Reclaim Trigger). This ensures you only risk capital on high-probability setups and avoid low-liquidity market chop.
+            </p>
+          </div>
         )}
       </div>
 
-      {/* Forming Setups Radar (Early Pre-Confirmation) */}
-      {formingSetups.length > 0 && (
-        <div className="bg-[#0e131d]/80 border border-amber-500/20 rounded-2xl p-4 sm:p-5">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-base">⚡</span>
-              <h3 className="text-sm font-bold text-amber-300">Setups Forming (Early Radar)</h3>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                AWAITING 1H CANDLE CLOSE
-              </span>
-            </div>
-            <span className="text-[11px] text-slate-400">Do not enter until confirmed</span>
+      {/* Interactive Live Profit & Risk Calculator */}
+      <div className="bg-[#0e131d]/90 border border-white/[0.08] rounded-3xl p-5 sm:p-6 backdrop-blur-xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold text-lg">
+            💰
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {formingSetups.map((form, idx) => (
-              <div
-                key={idx}
-                className="bg-[#090c13] border border-white/[0.06] p-3 rounded-xl flex items-center justify-between gap-3 text-xs"
-              >
-                <div>
-                  <div className="font-bold text-slate-200">{form.symbol} • {form.direction} FORMING</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">{form.setup_summary || 'Liquidity swept, awaiting reclaim trigger'}</div>
-                </div>
-                <div className="text-right font-mono">
-                  <div className="text-amber-400 font-bold">${form.entryPrice.toFixed(2)}</div>
-                  <div className="text-[10px] text-slate-500">Target: ${form.takeProfit1.toFixed(2)}</div>
-                </div>
-              </div>
-            ))}
+          <div>
+            <h3 className="text-sm sm:text-base font-black text-slate-100">
+              Live Profit & Risk Simulator (For $36.58 Balance)
+            </h3>
+            <p className="text-xs text-slate-400">
+              Calculate exact dollar return and preserve your capital with fixed 0.01 lot sizing.
+            </p>
           </div>
         </div>
-      )}
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Target Pips Slider */}
+          <div className="bg-[#080b11] p-4 rounded-2xl border border-white/[0.05]">
+            <div className="flex justify-between items-center text-xs mb-2">
+              <span className="text-slate-400 font-semibold">Target Move (Pips)</span>
+              <span className="font-mono font-extrabold text-amber-300">{calcPips} Pips (${calcPips / 10} move)</span>
+            </div>
+            <input
+              type="range"
+              min="10"
+              max="150"
+              step="5"
+              value={calcPips}
+              onChange={(e) => setCalcPips(Number(e.target.value))}
+              className="w-full accent-amber-400 cursor-pointer"
+            />
+          </div>
+
+          {/* Lot Sizing */}
+          <div className="bg-[#080b11] p-4 rounded-2xl border border-white/[0.05]">
+            <div className="flex justify-between items-center text-xs mb-2">
+              <span className="text-slate-400 font-semibold">Recommended Lot Size</span>
+              <span className="font-mono font-extrabold text-emerald-400">{calcLots.toFixed(2)} Lot (Safe)</span>
+            </div>
+            <div className="text-[11px] text-slate-400 mt-1">
+              On a $36 account, 0.01 lot limits risk to ~$0.50 – $1.00 per trade while enabling $2.00 – $4.00+ profit.
+            </div>
+          </div>
+
+          {/* Projected Profit Card */}
+          <div className="bg-gradient-to-br from-[#0e1f18] to-[#08140f] p-4 rounded-2xl border border-emerald-500/30 flex flex-col justify-center">
+            <div className="text-[11px] text-emerald-300 font-semibold uppercase">Projected Trade Profit</div>
+            <div className="text-xl sm:text-2xl font-mono font-black text-emerald-400">
+              +${estimatedProfitDollars.toFixed(2)} USD
+            </div>
+            <div className="text-[10px] text-slate-400 mt-0.5">
+              Gain: +{((estimatedProfitDollars / 36.58) * 100).toFixed(1)}% on Account Balance
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

@@ -1,0 +1,31 @@
+{
+  "name": "GOLD CLONE FX — Institutional Trading Terminal",
+  "short_name": "GOLD CLONE",
+  "description": "Institutional 3-Timeframe Confluence Scanner & Automated Execution Engine for Gold & Crypto.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07080b",
+  "theme_color": "#f5c842",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["finance", "business", "utilities"]
+}

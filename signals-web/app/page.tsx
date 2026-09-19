@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Navbar } from '@/components/Navbar';
+import { PWAInstallBanner } from '@/components/PWAInstallBanner';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { SignalsView } from '@/components/SignalsView';
 import { EACommandCenter } from '@/components/EACommandCenter';
@@ -282,7 +283,10 @@ export default function Home() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 md:p-6 transition-all duration-300">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 md:p-6 transition-all duration-300 flex flex-col gap-4">
+        {/* PWA Mobile Installation Prompt Banner */}
+        <PWAInstallBanner />
+
         {activeTab === 'signals' && (
           <SignalsView
             selectedSymbol={selectedSymbol}
