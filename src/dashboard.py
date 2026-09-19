@@ -19,6 +19,8 @@ except ImportError:
 from src.market_structure import MarketStructureAnalyzer
 from src.perfect_setups import PerfectSetupDetector
 from src.account_manager import AccountManager
+from src.market_schedule import MarketScheduleManager
+from src.early_warning import EarlyWarningDetector
 
 logger = logging.getLogger("GoldBot.Dashboard")
 
@@ -29,7 +31,7 @@ class DashboardExporter:
         self.dash_cfg = config.get("dashboard", {})
         self.enabled = self.dash_cfg.get("enabled", True)
         self.output_dir = output_dir
-        self.export_interval = self.dash_cfg.get("export_interval_seconds", 3)
+        self.export_interval = self.dash_cfg.get("export_interval_seconds", 2.5)
         self.last_export_time = 0.0
 
         os.makedirs(self.output_dir, exist_ok=True)
@@ -44,7 +46,7 @@ class DashboardExporter:
         active_symbols: Optional[Any] = None,
         accounts_summary: Optional[Any] = None,
         all_positions: Optional[list] = None,
-        active_session: str = "London",
+        active_session: str = "Live Autonomous Scanner",
         copy_engine_status: Optional[dict] = None,
         zones_data: Optional[List[dict]] = None,
         symbol: Optional[str] = None,
@@ -54,7 +56,7 @@ class DashboardExporter:
         daily_trend: Optional[str] = None,
         trend_reason: Optional[str] = None,
     ):
-        """Exports unified real-time dashboard data with Market Structure and Perfect Setups."""
+        """Exports unified real-time dashboard data with Market Structure, Schedules, and Early Warnings."""
         if not self.enabled:
             return
 
@@ -64,7 +66,7 @@ class DashboardExporter:
 
         self.last_export_time = now
 
-        # Normalize parameters for backward compatibility
+        # Normalize parameters
         if isinstance(active_symbols, str):
             symbol = active_symbols
             active_symbols = {"XAUUSD": symbol}
@@ -73,35 +75,44 @@ class DashboardExporter:
         elif active_symbols is None:
             active_symbols = {"XAUUSD": "XAUUSDm", "BTCUSD": "BTCUSDm"}
 
-        if accounts_summary is None and account_summary is not None:
-            accounts_summary = [{
-                "account_id": "account_a",
-                "name": "Exness Account A",
-                "balance": account_summary.get("balance", 1000.0),
-                "equity": account_summary.get("equity", 1000.0),
-                "daily_pnl": daily_perf.get("total_day_pnl", 0.0) if daily_perf else 0.0,
-                "trading_state": "NORMAL",
-                "connection_state": "CONNECTED_TRADING_ALLOWED",
-                "algo_trading_allowed": True,
-                "daily_drawdown_pct": 0.0,
-            }]
-        elif accounts_summary is None:
-            accounts_summary = []
-
+        fleet = self.account_manager.get_fleet_summary()
+        accounts_summary = fleet if accounts_summary is None or len(accounts_summary) == 0 else accounts_summary
         all_positions = all_positions or []
 
         try:
-            # 1. Fetch recent M5 candles for primary symbol
-            primary_sym = active_symbols.get("XAUUSD") if isinstance(active_symbols, dict) else "XAUUSDm"
+            # 1. Market Schedules check
+            market_schedules = MarketScheduleManager.get_schedule_summary(list(active_symbols.keys()))
+
+            # Primary symbol
+            primary_sym = active_symbols.get("XAUUSD", "XAUUSDm")
             if not primary_sym:
-                primary_sym = list(active_symbols.values())[0] if isinstance(active_symbols, dict) and active_symbols else "XAUUSD"
+                primary_sym = list(active_symbols.values())[0] if active_symbols else "XAUUSD"
 
             candles = []
-            if mt5 is not None:
-                rates = mt5.copy_rates_from_pos(primary_sym, mt5.TIMEFRAME_M5, 0, 90)
-                if rates is not None and len(rates) > 0:
-                    for r in rates:
-                        candles.append({
+            m5_candles_by_symbol = {}
+
+            # 2. Fetch candles only if market is open or from fallback structure
+            for sym_key, sym_val in active_symbols.items():
+                is_open = market_schedules.get(sym_key, {}).get("is_open", True)
+                sym_candles = []
+
+                if is_open and mt5 is not None:
+                    rates = mt5.copy_rates_from_pos(sym_val, mt5.TIMEFRAME_M5, 0, 90)
+                    if rates is not None and len(rates) > 0:
+                        for r in rates:
+                            sym_candles.append({
+                                "time": int(r["time"]),
+                                "open": float(r["open"]),
+                                "high": float(r["high"]),
+                                "low": float(r["low"]),
+                                "close": float(r["close"]),
+                                "volume": int(r["tick_volume"]),
+                            })
+
+                if not sym_candles:
+                    df_fallback = self.structure_analyzer._generate_fallback_rates(sym_val, "M5", count=90)
+                    for _, r in df_fallback.iterrows():
+                        sym_candles.append({
                             "time": int(r["time"]),
                             "open": float(r["open"]),
                             "high": float(r["high"]),
@@ -110,26 +121,17 @@ class DashboardExporter:
                             "volume": int(r["tick_volume"]),
                         })
 
-            # If candles could not be fetched from MT5, use fallback rates from structure analyzer
-            if not candles:
-                df_fallback = self.structure_analyzer._generate_fallback_rates(primary_sym, "M5", count=90)
-                for _, r in df_fallback.iterrows():
-                    candles.append({
-                        "time": int(r["time"]),
-                        "open": float(r["open"]),
-                        "high": float(r["high"]),
-                        "low": float(r["low"]),
-                        "close": float(r["close"]),
-                        "volume": int(r["tick_volume"]),
-                    })
+                m5_candles_by_symbol[sym_key] = sym_candles
+                if sym_val == primary_sym or sym_key == "XAUUSD":
+                    candles = sym_candles
 
-            # 2. Format Open Positions
+            # 3. Format Open Positions
             pos_list = []
             for p in all_positions:
                 ticket = int(p.get("ticket", 0))
                 p_item = {
                     "ticket": ticket,
-                    "account_id": str(p.get("account_id", "ACCOUNT_A")).upper(),
+                    "account_id": str(p.get("account_id", "")).upper(),
                     "symbol": str(p.get("symbol", "XAUUSDm")),
                     "type": str(p.get("type", "BUY")),
                     "volume": float(p.get("volume", 0.01)),
@@ -143,99 +145,62 @@ class DashboardExporter:
                 }
                 pos_list.append(p_item)
 
-            # 3. Market Structure & Perfect Setups Analysis
+            # 4. Market Structure & Perfect Setups Analysis
             structure_all: Dict[str, Any] = {}
             active_setups_all: List[Dict[str, Any]] = []
             forming_setups_all: List[Dict[str, Any]] = []
 
-            scan_symbols = list(active_symbols.values()) if isinstance(active_symbols, dict) else [primary_sym]
-            if primary_sym not in scan_symbols:
-                scan_symbols.insert(0, primary_sym)
-
-            cur_spread = 20
-            if mt5 is not None:
-                info = mt5.symbol_info(primary_sym)
-                if info:
-                    cur_spread = info.spread
-
-            for sym in scan_symbols[:2]:  # Gold & BTC
-                struct = self.structure_analyzer.analyze_symbol_structure(sym)
-                clean_key = sym.replace("m", "").replace("_i", "").replace("z", "").upper()
+            for sym_key, sym_val in active_symbols.items():
+                struct = self.structure_analyzer.analyze_symbol_structure(sym_val)
+                clean_key = sym_key.upper()
                 structure_all[clean_key] = struct
 
-                act_s, form_s = self.setup_detector.evaluate_setups(
-                    symbol=sym,
-                    structure_data=struct,
-                    spread_pts=cur_spread,
-                )
-                active_setups_all.extend(act_s)
-                forming_setups_all.extend(form_s)
+                # Only evaluate new live triggers if market is open
+                is_open = market_schedules.get(clean_key, {}).get("is_open", True)
+                if is_open:
+                    cur_spread = 20
+                    if mt5 is not None:
+                        info = mt5.symbol_info(sym_val)
+                        if info:
+                            cur_spread = info.spread
+                    act_s, form_s = self.setup_detector.evaluate_setups(
+                        symbol=sym_val,
+                        structure_data=struct,
+                        spread_pts=cur_spread,
+                    )
+                    active_setups_all.extend(act_s)
+                    forming_setups_all.extend(form_s)
 
-            # Ensure sample signals exist for demonstration if market is flat/quiet
-            if not active_setups_all and not forming_setups_all:
-                demo_struct = structure_all.get(list(structure_all.keys())[0]) if structure_all else {}
-                demo_price = demo_struct.get("current_price", 2735.20)
-                active_setups_all.append({
-                    "id": f"SETUP_PERFECT_XAU_{int(now)}",
-                    "symbol": primary_sym,
-                    "direction": "BUY",
-                    "grade": "A+ PERFECT SETUP",
-                    "conviction_score": 92,
-                    "entry_price": demo_price,
-                    "stop_loss": round(demo_price - 3.20, 2),
-                    "tp1": round(demo_price + 6.80, 2),
-                    "tp2": round(demo_price + 10.50, 2),
-                    "risk_reward": 2.12,
-                    "sl_distance": 3.20,
-                    "tp_distance": 6.80,
-                    "timeframe": "M5/M15",
-                    "status": "ACTIVE_READY",
-                    "invalidation_level": round(demo_price - 3.20, 2),
-                    "confluences": [
-                        "HTF Trend Bullish Alignment (D1 + H4 Uptrend)",
-                        f"Sell-Side Liquidity Swept below {demo_price - 3.50:.2f}",
-                        "Confirmed M5 Closed Candle Reclaim with Bullish Pin",
-                        "Discount Value Area Reversal in London Session",
-                        "Risk-to-Reward Ratio: 1:2.12",
-                    ],
-                    "setup_summary": f"[BUY A+ PERFECT SETUP] Swept SSL at {demo_price-3.5:.2f} -> Confirmed M5 Reclaim -> Target {demo_price+6.8:.2f}",
-                    "formed_time": datetime.datetime.utcnow().strftime("%H:%M:%S UTC"),
-                    "timestamp": int(now),
-                })
-                forming_setups_all.append({
-                    "id": f"FORMING_BTC_{int(now)}",
-                    "symbol": "BTCUSDm",
-                    "direction": "SELL",
-                    "grade": "GRADE A",
-                    "conviction_score": 78,
-                    "entry_price": 92450.0,
-                    "stop_loss": 92850.0,
-                    "tp1": 91650.0,
-                    "tp2": 90900.0,
-                    "risk_reward": 2.0,
-                    "sl_distance": 400.0,
-                    "tp_distance": 800.0,
-                    "timeframe": "M15",
-                    "status": "FORMING",
-                    "invalidation_level": 92850.0,
-                    "confluences": [
-                        "H4 Bearish Market Structure",
-                        "Buy-Side Liquidity Swept at 92,820",
-                        "Awaiting closed M15 confirmation breakdown",
-                    ],
-                    "setup_summary": "Buy-side liquidity swept at 92,820. Monitoring for closed M15 breakdown.",
-                    "formed_time": datetime.datetime.utcnow().strftime("%H:%M:%S UTC"),
-                    "timestamp": int(now),
-                })
+            # 5. Early Warning & Profit Defense Analysis
+            early_warnings_all = []
+            # Check warnings on active setups
+            for s in active_setups_all:
+                sym_clean = s.get("symbol", "XAUUSD").replace("m", "").replace("_i", "").replace("z", "").upper()
+                curr_price = float(structure_all.get(sym_clean, {}).get("current_price", s.get("entry_price", 0.0)))
+                w_list = EarlyWarningDetector.analyze_signal_warnings(
+                    s, curr_price, m5_candles_by_symbol.get(sym_clean, [])
+                )
+                s["early_warnings"] = w_list
+                for w in w_list:
+                    early_warnings_all.append({**w, "source": "SIGNAL", "symbol": sym_clean})
+
+            # Check warnings on open account positions
+            pos_warnings = EarlyWarningDetector.evaluate_all_open_positions(pos_list, m5_candles_by_symbol)
+            for pw in pos_warnings:
+                early_warnings_all.append({**pw, "source": "LIVE_TRADE"})
 
             primary_struct = structure_all.get(list(structure_all.keys())[0]) if structure_all else {}
-            fleet = self.account_manager.get_fleet_summary()
-            if not accounts_summary or len(accounts_summary) <= 1:
-                accounts_summary = fleet
-            primary_acc = accounts_summary[0] if accounts_summary else {"balance": 1000.0, "equity": 1000.0, "daily_pnl": 0.0}
+            primary_acc = accounts_summary[0] if accounts_summary else {
+                "account_id": "NONE",
+                "name": "No Accounts Connected",
+                "balance": 0.0,
+                "equity": 0.0,
+                "daily_pnl": 0.0,
+                "status": "AWAITING_ACCOUNT",
+            }
 
             killzone_info = PerfectSetupDetector.get_killzone_status()
-            cur_p = primary_struct.get("current_price", 2735.20)
+            cur_p = primary_struct.get("current_price", 2742.50)
             adr_info = PerfectSetupDetector.check_adr_exhaustion(primary_sym, cur_p)
 
             payload = {
@@ -244,30 +209,32 @@ class DashboardExporter:
                 "active_symbols": active_symbols,
                 "primary_symbol": primary_sym,
                 "active_session": active_session,
+                "market_schedules": market_schedules,
                 "killzone": killzone_info,
                 "adr": adr_info,
                 "master_switch": {
                     "primary_switch": "MT5_NATIVE_ALGO_TRADING",
-                    "algo_trading_active": any(a.get("algo_trading_allowed", False) for a in accounts_summary) if accounts_summary else True,
+                    "algo_trading_active": any(a.get("algo_trading_allowed", False) for a in accounts_summary) if accounts_summary else False,
                 },
                 "account": {
-                    "balance": round(float(primary_acc.get("balance", 1000.0)), 2),
-                    "equity": round(float(primary_acc.get("equity", 1000.0)), 2),
-                    "margin_free": round(float(primary_acc.get("free_margin", primary_acc.get("margin_free", 1000.0))), 2),
+                    "balance": round(float(primary_acc.get("balance", 0.0)), 2),
+                    "equity": round(float(primary_acc.get("equity", 0.0)), 2),
+                    "margin_free": round(float(primary_acc.get("free_margin", primary_acc.get("margin_free", 0.0))), 2),
                 },
                 "performance": {
                     "total_day_pnl": round(float(primary_acc.get("daily_pnl", 0.0)), 2),
                 },
                 "market_state": {
-                    "daily_trend": primary_struct.get("macro_bias", daily_trend or "UPTREND"),
-                    "overall_regime": primary_struct.get("overall_regime", "EXPANSION"),
+                    "daily_trend": primary_struct.get("macro_bias", daily_trend or "RANGING"),
+                    "overall_regime": primary_struct.get("overall_regime", "ACCUMULATION"),
                     "session": active_session,
-                    "spread_pts": cur_spread,
+                    "spread_pts": 20,
                 },
                 "market_structure": structure_all,
                 "perfect_setups": active_setups_all,
                 "forming_setups": forming_setups_all,
-                "signals_history": self.setup_detector.signals_history or self.setup_detector.get_sample_history(primary_sym),
+                "signals_history": self.setup_detector.signals_history or [],
+                "early_warnings": early_warnings_all,
                 "accounts": accounts_summary,
                 "copy_engine": copy_engine_status or {},
                 "positions": pos_list,
@@ -275,10 +242,10 @@ class DashboardExporter:
             }
 
             temp_file = self.data_file + ".tmp"
-            with open(temp_file, "w") as f:
-                json.dump(payload, f, indent=2)
+            with open(temp_file, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2, ensure_ascii=False)
             os.replace(temp_file, self.data_file)
 
         except Exception as e:
-            logger.warning(f"Error exporting dashboard data: {e}")
+            logger.warning(f"Error exporting dashboard data: {e}", exc_info=True)
 

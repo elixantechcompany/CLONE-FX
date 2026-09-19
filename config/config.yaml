@@ -29,98 +29,11 @@ personal_account:
 accounts:
   enabled: true
   multi_account_mode: true
-  account_list:
-  - id: account_a
-    name: Exness Account A (My Account)
-    type: PERSONAL
-    balance: 100.0
-    mode: INDEPENDENT
-    copy_enabled: false
-    env_login_var: ACCOUNT_A_LOGIN
-    env_password_var: ACCOUNT_A_PASSWORD
-    env_server_var: ACCOUNT_A_SERVER
-    env_path_var: ACCOUNT_A_MT5_PATH
-    fallback_login_var: ACCOUNT_1_LOGIN
-    fallback_password_var: ACCOUNT_1_PASSWORD
-    fallback_server_var: ACCOUNT_1_SERVER
-    is_active: true
-  - id: account_b
-    name: BrightFunded Account B (Brother's Account)
-    type: BRIGHTFUNDED
-    balance: 1000.0
-    mode: INDEPENDENT
-    copy_enabled: false
-    env_login_var: ACCOUNT_B_LOGIN
-    env_password_var: ACCOUNT_B_PASSWORD
-    env_server_var: ACCOUNT_B_SERVER
-    env_path_var: ACCOUNT_B_MT5_PATH
-    fallback_login_var: ACCOUNT_2_LOGIN
-    fallback_password_var: ACCOUNT_2_PASSWORD
-    fallback_server_var: ACCOUNT_2_SERVER
-    is_active: false
-  - id: account_c
-    name: Personal Account C ($10 Master)
-    type: PERSONAL
-    balance: 10.0
-    mode: COPY_MASTER
-    copy_enabled: true
-    env_login_var: ACCOUNT_C_LOGIN
-    env_password_var: ACCOUNT_C_PASSWORD
-    env_server_var: ACCOUNT_C_SERVER
-    env_path_var: ACCOUNT_C_MT5_PATH
-    fallback_login_var: ACCOUNT_3_LOGIN
-    fallback_password_var: ACCOUNT_3_PASSWORD
-    fallback_server_var: ACCOUNT_3_SERVER
-    is_active: true
-  - id: account_d
-    name: Personal Account D ($1000 FBS)
-    type: PERSONAL
-    balance: 1000.0
-    mode: COPY_FOLLOWER
-    copy_enabled: true
-    copy_source: account_c
-    env_login_var: ACCOUNT_D_LOGIN
-    env_password_var: ACCOUNT_D_PASSWORD
-    env_server_var: ACCOUNT_D_SERVER
-    env_path_var: ACCOUNT_D_MT5_PATH
-    fallback_login_var: ACCOUNT_4_LOGIN
-    fallback_password_var: ACCOUNT_4_PASSWORD
-    fallback_server_var: ACCOUNT_4_SERVER
-    is_active: true
-  - id: account_e
-    name: New Account
-    type: PERSONAL
-    balance: 20.0
-    mode: INDEPENDENT
-    execution_mode: AUTOMATED_EA
-    copy_enabled: false
-    max_daily_loss_pct: 10.0
-    risk_per_trade_pct: 1.0
-    min_rr: 2.0
-    env_login_var: ACCOUNT_E_LOGIN
-    env_password_var: ACCOUNT_E_PASSWORD
-    env_server_var: ACCOUNT_E_SERVER
-    env_path_var: ACCOUNT_E_MT5_PATH
-    is_active: true
-  - id: account_f
-    name: HF Markets  Live
-    type: PERSONAL
-    balance: 20.0
-    mode: INDEPENDENT
-    execution_mode: AUTOMATED_EA
-    copy_enabled: false
-    max_daily_loss_pct: 10.0
-    risk_per_trade_pct: 1.0
-    min_rr: 2.0
-    env_login_var: ACCOUNT_F_LOGIN
-    env_password_var: ACCOUNT_F_PASSWORD
-    env_server_var: ACCOUNT_F_SERVER
-    env_path_var: ACCOUNT_F_MT5_PATH
-    is_active: true
+  account_list: []
 copy_engine:
-  enabled: true
-  master_account_id: account_c
-  follower_account_id: account_d
+  enabled: false
+  master_account_id: ""
+  follower_account_id: ""
   max_follower_risk_dollars: 0.5
   hard_reject_risk_dollars: 1.0
   max_spread_points_gold: 320

@@ -38,12 +38,12 @@ export interface TriggerEvaluation {
   explanation: string;
 }
 
-export type SignalDirection = 'LONG' | 'SHORT';
-export type ConfluenceScore = '3/3' | '2/3';
+export type SignalDirection = 'LONG' | 'SHORT' | 'BUY' | 'SELL';
+export type ConfluenceScore = '3/3' | '2/3' | 'A+ PERFECT SETUP' | 'GRADE B' | 'GRADE C';
 
 export interface ConfluenceSignal {
   id?: string;
-  symbol: 'XAUUSD' | 'BTCUSD';
+  symbol: string;
   direction: SignalDirection;
   entryPrice: number;
   stopLoss: number;
@@ -52,17 +52,95 @@ export interface ConfluenceSignal {
   riskReward: number;
   slDistance: number;
   tpDistance: number;
-  confluenceScore: ConfluenceScore;
-  scoreNumeric: number;
-  timeframeStack: {
+  confluenceScore: string;
+  scoreNumeric?: number;
+  timeframeStack?: {
     '4H': string;
     '1H': string;
     '30M': string;
   };
   confluences: string[];
-  status: 'ACTIVE' | 'EXPIRED' | 'HIT_TP' | 'HIT_SL' | 'NOT_TAKEN';
+  status: 'ACTIVE' | 'EXPIRED' | 'HIT_TP' | 'HIT_SL' | 'NOT_TAKEN' | 'ACTIVE_READY' | 'FORMING';
   outcomeNotes?: string;
+  setup_summary?: string;
   createdAt?: string;
+  formed_time?: string;
+  timestamp?: number;
+}
+
+export interface MarketSchedule {
+  symbol: string;
+  is_open: boolean;
+  status: 'OPEN' | 'CLOSED';
+  status_text: string;
+  seconds_to_change?: number;
+  asset_type?: string;
+  current_time_utc?: string;
+}
+
+export interface EarlyWarning {
+  id: string;
+  symbol: string;
+  type: string;
+  severity: 'WARNING' | 'CRITICAL' | 'INFO';
+  message: string;
+  action: 'MOVE_SL_TO_BE' | 'LOCK_PARTIAL_70_PCT' | 'TIGHTEN_STOP_LOSS' | 'ALERT_ONLY';
+  peak_pnl?: number;
+  current_pnl?: number;
+  giveback_pct?: number;
+  timestamp: number;
+  formatted_time: string;
+}
+
+export interface LivePosition {
+  ticket: number;
+  account_id: string;
+  account_name: string;
+  symbol: string;
+  type: 'BUY' | 'SELL';
+  volume: number;
+  open_price: number;
+  current_price: number;
+  sl: number;
+  tp: number;
+  profit: number;
+  swap?: number;
+  comment?: string;
+  open_time?: string;
+}
+
+export interface FleetAccount {
+  id: string;
+  name: string;
+  type: string;
+  balance: number;
+  equity: number;
+  margin: number;
+  free_margin: number;
+  profit: number;
+  drawdown_pct: number;
+  status: string;
+  execution_mode: string;
+}
+
+export interface DashboardApiResponse {
+  last_updated?: string;
+  timestamp?: number;
+  market_schedules?: Record<string, MarketSchedule>;
+  accounts?: FleetAccount[];
+  positions?: LivePosition[];
+  perfect_setups?: ConfluenceSignal[];
+  forming_setups?: ConfluenceSignal[];
+  signals_history?: ConfluenceSignal[];
+  early_warnings?: EarlyWarning[];
+  account?: {
+    balance: number;
+    equity: number;
+    margin_free: number;
+  };
+  performance?: {
+    total_day_pnl: number;
+  };
 }
 
 export interface MarketDataBundle {

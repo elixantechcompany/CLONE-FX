@@ -1256,6 +1256,142 @@
     .form-group input:focus, .form-group select:focus {
       border-color: var(--gold-primary);
     }
+
+    /* Dashboard Tabs Navigation */
+    .dashboard-tabs-bar {
+      display: flex;
+      gap: 10px;
+      margin: 20px 0 10px 0;
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 12px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .dash-tab {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      padding: 10px 20px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+    }
+
+    .dash-tab:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-main);
+      transform: translateY(-1px);
+    }
+
+    .dash-tab.active {
+      background: var(--gold-gradient);
+      border-color: var(--gold-primary);
+      color: #000;
+      box-shadow: 0 0 20px rgba(245, 200, 66, 0.35);
+    }
+
+    .tab-badge {
+      font-size: 11px;
+      font-weight: 800;
+      padding: 2px 7px;
+      border-radius: 100px;
+      background: rgba(0, 0, 0, 0.25);
+      color: inherit;
+    }
+
+    .dash-tab.active .tab-badge {
+      background: #000;
+      color: var(--gold-primary);
+    }
+
+    /* Early Warning Alert Banner */
+    .early-warning-banner {
+      background: rgba(244, 63, 94, 0.12);
+      border: 1px solid var(--rose);
+      border-radius: 16px;
+      padding: 16px 22px;
+      margin: 16px 0;
+      box-shadow: 0 0 25px rgba(244, 63, 94, 0.2);
+      animation: alert-pulse 2s infinite;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .early-warning-banner.warning {
+      background: rgba(245, 200, 66, 0.12);
+      border-color: var(--gold-primary);
+      box-shadow: 0 0 25px rgba(245, 200, 66, 0.2);
+    }
+
+    @keyframes alert-pulse {
+      0% { box-shadow: 0 0 15px rgba(244, 63, 94, 0.2); }
+      50% { box-shadow: 0 0 30px rgba(244, 63, 94, 0.5); }
+      100% { box-shadow: 0 0 15px rgba(244, 63, 94, 0.2); }
+    }
+
+    /* Market Schedule Badge */
+    .schedule-pill {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-left: 6px;
+    }
+    .schedule-pill.open {
+      background: var(--emerald-bg);
+      border: 1px solid var(--border-emerald);
+      color: var(--emerald);
+    }
+    .schedule-pill.closed {
+      background: var(--rose-bg);
+      border: 1px solid var(--border-rose);
+      color: var(--rose);
+    }
+
+    /* Tab Section Display Controls */
+    .tab-panel {
+      display: none;
+    }
+    .tab-panel.active-panel {
+      display: block;
+      animation: fadeIn 0.25s ease forwards;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Mobile Responsive Overhaul */
+    @media (max-width: 768px) {
+      .container { padding: 12px; }
+      header { flex-direction: column; align-items: flex-start; gap: 14px; padding: 16px; }
+      .header-actions { flex-wrap: wrap; width: 100%; }
+      .btn-control { padding: 7px 12px; font-size: 12px; flex: 1 1 auto; justify-content: center; }
+      .ticker-bar { gap: 10px; }
+      .ticker-item { padding: 8px 14px; font-size: 12px; }
+      .metrics-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+      .metric-card { padding: 14px; }
+      .metric-value { font-size: 22px; }
+      .signals-grid { grid-template-columns: 1fr; }
+      .main-grid { grid-template-columns: 1fr; }
+      .fleet-grid { grid-template-columns: 1fr; }
+      .modal-card { padding: 18px; margin: 10px; max-height: 90vh; overflow-y: auto; }
+      .table-container { padding: 12px; }
+      table { font-size: 12px; }
+      th, td { padding: 8px 10px; }
+    }
   </style>
 </head>
 <body>
@@ -1298,17 +1434,19 @@
       </div>
     </header>
 
-    <!-- Real-Time Ticker Ribbon -->
+    <!-- Real-Time Ticker Ribbon with Market Schedules -->
     <div class="ticker-bar">
       <div class="ticker-item">
         <span class="ticker-symbol">GOLD (XAUUSDm):</span>
-        <span class="ticker-price gold" id="tick_xau_price">2,735.20</span>
+        <span class="ticker-price gold" id="tick_xau_price">2,742.50</span>
         <span class="metric-sub" id="tick_xau_spread">Spread: 18 pts</span>
+        <span id="tick_xau_schedule" class="schedule-pill closed">CHECKING...</span>
       </div>
       <div class="ticker-item">
         <span class="ticker-symbol">BITCOIN (BTCUSDm):</span>
         <span class="ticker-price cyan" id="tick_btc_price">92,450.00</span>
         <span class="metric-sub" id="tick_btc_spread">Spread: 1,850 pts</span>
+        <span id="tick_btc_schedule" class="schedule-pill open">OPEN (24/7)</span>
       </div>
       <div class="ticker-item">
         <span class="ticker-symbol">KILLZONE WINDOW:</span>
@@ -1320,7 +1458,21 @@
       </div>
       <div class="ticker-item">
         <span class="ticker-symbol">ALGO TRADING:</span>
-        <span class="green" id="algo_switch_status" style="font-weight: 700;">MASTER SWITCH ON</span>
+        <span class="green" id="algo_switch_status" style="font-weight: 700;">ARMED</span>
+      </div>
+    </div>
+
+    <!-- Early Warning & Profit Defense Alert Banner (Ahead of Chart) -->
+    <div id="early_warning_banner" class="early-warning-banner" style="display: none;">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <span style="font-size: 24px;">⚡</span>
+        <div>
+          <div id="early_warning_title" style="font-weight: 800; font-size: 15px; color: #fff;">Early Warning: Trend Retracement Detected</div>
+          <div id="early_warning_msg" style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">Shift in lower-timeframe momentum. Protect your profits.</div>
+        </div>
+      </div>
+      <div id="early_warning_action" class="badge" style="background: rgba(245, 200, 66, 0.2); border-color: var(--gold-primary); color: var(--gold-primary); font-weight: 800;">
+        Recommended: Move SL to BE (+0.2R)
       </div>
     </div>
 
@@ -1328,20 +1480,20 @@
     <div class="metrics-grid">
       <div class="metric-card">
         <div class="metric-label">Perfect Setups (A+)</div>
-        <div class="metric-value gold" id="val_perfect_count">1 ACTIVE</div>
-        <div class="metric-sub" id="sub_perfect_forming">1 Forming on Radar</div>
+        <div class="metric-value gold" id="val_perfect_count">0 ACTIVE</div>
+        <div class="metric-sub" id="sub_perfect_forming">Scanning open pairs...</div>
       </div>
       
       <div class="metric-card">
         <div class="metric-label">Market Structure Regime</div>
         <div class="metric-value green" style="font-size: 22px;" id="val_macro_regime">ACCUMULATION</div>
-        <div class="metric-sub" id="sub_macro_bias">D1 + H4 Bullish Aligned</div>
+        <div class="metric-sub" id="sub_macro_bias">Institutional Structure Aligned</div>
       </div>
 
       <div class="metric-card">
         <div class="metric-label">Signal Win Rate (Historical)</div>
-        <div class="metric-value green" id="val_win_rate">84.6%</div>
-        <div class="metric-sub">11 Wins / 2 Losses (A+ Only)</div>
+        <div class="metric-value green" id="val_win_rate">85.0%</div>
+        <div class="metric-sub">Confluence Filter Verified</div>
       </div>
 
       <div class="metric-card">
@@ -1351,207 +1503,279 @@
       </div>
     </div>
 
-    <!-- Multi-Terminal Fleet & Prop Firm Drawdown Armor -->
-    <section>
-      <div class="section-header">
-        <div>
-          <div class="section-title">🏦 Multi-Terminal Fleet & Prop Firm Drawdown Armor</div>
-          <div class="section-subtitle">Real-time local MT5 processes, equity baseline tracking & 4.0% daily circuit breaker armor</div>
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn-tf active" onclick="openAddAccountModal()">➕ Add Account ($20 min)</button>
-          <button class="btn-tf" onclick="launchAllTerminals()">🚀 Launch All MT5</button>
-        </div>
-      </div>
+    <!-- Segregated Navigation Tabs -->
+    <div class="dashboard-tabs-bar">
+      <button class="dash-tab active" id="tab_btn_signals" onclick="switchDashboardTab('signals')">
+        🎯 Market Confluence Signals <span class="tab-badge" id="signals_badge_count">0</span>
+      </button>
+      <button class="dash-tab" id="tab_btn_trades" onclick="switchDashboardTab('trades')">
+        💼 Live Account Trades <span class="tab-badge" id="live_trades_badge_count">0</span>
+      </button>
+      <button class="dash-tab" id="tab_btn_fleet" onclick="switchDashboardTab('fleet')">
+        🏦 Account Fleet ($20 min) <span class="tab-badge" id="fleet_badge_count">0</span>
+      </button>
+      <button class="dash-tab" id="tab_btn_chart" onclick="switchDashboardTab('chart')">
+        📈 Chart & Market Structure
+      </button>
+    </div>
 
-      <div class="fleet-grid" id="fleet_cards_container">
-        <!-- Dynamic Fleet cards injected here -->
-      </div>
-    </section>
-
-    <!-- Multi-Timeframe Trend & Market Structure Decomposition -->
-    <section>
-      <div class="section-header">
-        <div>
-          <div class="section-title">📊 Multi-Timeframe Market Structure Matrix</div>
-          <div class="section-subtitle">Real-time Smart Money Concepts (SMC) trend decomposition across D1 to M5</div>
-        </div>
-        <div class="badge" id="structure_symbol_badge">Symbol: XAUUSDm</div>
-      </div>
-
-      <div class="tf-matrix-grid" id="tf_matrix_container">
-        <!-- Dynamic TF cards injected here -->
-      </div>
-    </section>
-
-    <!-- Active Perfect Setups Feed -->
-    <section>
-      <div class="section-header">
-        <div>
-          <div class="section-title">🎯 Active "Perfect Setups" Signal Stream</div>
-          <div class="section-subtitle">Grade A+ high-conviction trades matching all 6 institutional confluence layers</div>
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn-tf active" onclick="filterSignals('ALL')">All (XAU & BTC)</button>
-          <button class="btn-tf" onclick="filterSignals('XAU')">Gold Only</button>
-          <button class="btn-tf" onclick="filterSignals('BTC')">BTC Only</button>
-        </div>
-      </div>
-
-      <div class="signals-grid" id="signals_cards_container">
-        <!-- Dynamic Signal Cards injected here -->
-      </div>
-    </section>
-
-    <!-- Main Chart & Side Intelligence -->
-    <div class="main-grid">
-      <div class="chart-container">
-        <div class="section-header" style="margin-bottom: 0;">
-          <div class="section-title">
-            <span>📈 Live Institutional Price & Sweep Zones</span>
+    <!-- ================================================================= -->
+    <!-- TAB 1: MARKET CONFLUENCE SIGNALS (SCANNER FEED) -->
+    <!-- ================================================================= -->
+    <div id="panel_signals" class="tab-panel active-panel">
+      <!-- Active Perfect Setups Feed -->
+      <section>
+        <div class="section-header">
+          <div>
+            <div class="section-title">🎯 Active "Perfect Setups" Signal Stream</div>
+            <div class="section-subtitle">Real-time Grade A+ signals with exact Entry Point, Stop Loss, and Take Profit targets</div>
           </div>
-          <div class="chart-controls">
-            <button class="btn-tf active" onclick="setChartTf('M5')">M5</button>
-            <button class="btn-tf" onclick="setChartTf('M15')">M15</button>
-            <button class="btn-tf" onclick="setChartTf('H1')">H1</button>
-          </div>
-        </div>
-        <div id="tv_chart"></div>
-      </div>
-
-      <!-- Side Stack: Radar, Calculator & Key Zones -->
-      <div class="side-stack">
-        <!-- Prop Firm Risk & Lot Size Calculator -->
-        <div class="panel-card glass-calculator">
-          <div class="section-title" style="font-size: 15px; display: flex; justify-content: space-between; align-items: center;">
-            <span>⚖️ Prop Firm Risk & Lot Calculator</span>
-            <div style="display: flex; gap: 4px;">
-              <button class="btn-preset active" id="btn_calc_sym_xau" onclick="setCalcInstrument('XAUUSDm')">XAU</button>
-              <button class="btn-preset" id="btn_calc_sym_btc" onclick="setCalcInstrument('BTCUSDm')">BTC</button>
-            </div>
-          </div>
-          
-          <div class="calc-presets">
-            <div class="calc-label">Select Account Size:</div>
-            <div class="preset-buttons">
-              <button class="btn-preset active" id="btn_preset_1000" onclick="setAccountPreset(1000, 'BrightFunded')">$1,000</button>
-              <button class="btn-preset" id="btn_preset_100" onclick="setAccountPreset(100, 'Exness')">$100</button>
-              <button class="btn-preset" id="btn_preset_20_hf" onclick="setAccountPreset(20, 'HF Markets')">$20 (HF)</button>
-              <button class="btn-preset" id="btn_preset_20_fbs" onclick="setAccountPreset(20, 'FBS')">$20 (FBS)</button>
-              <button class="btn-preset" id="btn_preset_custom" onclick="setAccountPreset('custom', 'Custom')">Custom</button>
-            </div>
-          </div>
-
-          <div class="calc-inputs-row">
-            <div class="calc-group">
-              <label>Account Balance ($)</label>
-              <input type="number" id="calc_balance_input" value="1000" oninput="calculateLotSize()">
-            </div>
-            <div class="calc-group">
-              <label>SL Distance (pts)</label>
-              <input type="number" step="0.1" id="calc_sl_input" value="3.5" oninput="calculateLotSize()">
-            </div>
-          </div>
-
-          <div class="calc-group" style="margin-top: 10px;">
-            <label>Risk Per Trade (%):</label>
-            <div class="risk-pct-group">
-              <button class="btn-risk active" id="risk_btn_025" onclick="setRiskPct(0.25)">0.25%</button>
-              <button class="btn-risk" id="risk_btn_050" onclick="setRiskPct(0.50)">0.50%</button>
-              <button class="btn-risk" id="risk_btn_100" onclick="setRiskPct(1.00)">1.00%</button>
-              <button class="btn-risk" id="risk_btn_200" onclick="setRiskPct(2.00)">2.00%</button>
-            </div>
-          </div>
-
-          <div class="calc-results-card">
-            <div class="calc-stat-row">
-              <span class="calc-stat-label">Max Risk Allowance:</span>
-              <span class="calc-stat-val red" id="calc_risk_usd">$2.50</span>
-            </div>
-            <div class="calc-stat-row calc-lot-highlight">
-              <span class="calc-stat-label" style="color: var(--gold-primary); font-weight: 700;">Calculated Lot Size:</span>
-              <span class="calc-stat-val gold" id="calc_lot_output" style="font-size: 18px;">0.01 LOT</span>
-            </div>
-            <div class="calc-stat-row">
-              <span class="calc-stat-label">Target TP1 Gain (1:2):</span>
-              <span class="calc-stat-val green" id="calc_tp1_gain">+$5.00 (+0.50%)</span>
-            </div>
-            <div class="calc-stat-row">
-              <span class="calc-stat-label">Target TP2 Gain (1:3+):</span>
-              <span class="calc-stat-val cyan" id="calc_tp2_gain">+$7.50 (+0.75%)</span>
-            </div>
-          </div>
-
-          <button class="btn-copy-ticket" onclick="copyOrderTicket()">
-            📋 Copy MT5 Execution Plan
-          </button>
-        </div>
-
-        <!-- Liquidity Depth & Value Area Radar -->
-        <div class="panel-card glass-liquidity">
-          <div class="section-title" style="font-size: 15px; display: flex; justify-content: space-between; align-items: center;">
-            <span>🌊 Liquidity Depth & Value Area</span>
-            <span class="trend-pill trend-bullish" id="liq_regime_badge" style="font-size: 10px;">DISCOUNT VALUE AREA</span>
-          </div>
-
-          <div class="liq-depth-track">
-            <div class="liq-meter-bar">
-              <div class="liq-cursor" id="liq_cursor_el" style="left: 45%;"></div>
-            </div>
-            <div class="liq-labels-row">
-              <span id="liq_ssl_label" class="red">SSL: 2,729.50</span>
-              <span id="liq_cur_label" style="color: var(--gold-primary); font-weight: 700;">Price: 2,735.20</span>
-              <span id="liq_bsl_label" class="cyan">BSL: 2,746.00</span>
-            </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-tf active" onclick="filterSignals('ALL')">All Pairs</button>
+            <button class="btn-tf" onclick="filterSignals('XAU')">Gold Only</button>
+            <button class="btn-tf" onclick="filterSignals('BTC')">BTC Only</button>
           </div>
         </div>
 
-        <div class="panel-card">
-          <div class="section-title" style="font-size: 16px;">
-            <span>📡 Setups Forming Radar (Early Warning)</span>
-          </div>
-          <div id="forming_radar_container">
-            <!-- Dynamic Forming Setups injected here -->
-          </div>
+        <div class="signals-grid" id="signals_cards_container">
+          <!-- Dynamic Signal Cards injected here -->
         </div>
+      </section>
 
-        <div class="panel-card">
-          <div class="section-title" style="font-size: 16px;">
-            <span>🛡️ Institutional Supply & Demand Zones</span>
-          </div>
-          <div id="zones_container" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">
-            <!-- Key Zones injected here -->
+      <!-- Setups Forming Radar -->
+      <section style="margin-top: 24px;">
+        <div class="section-header">
+          <div>
+            <div class="section-title">📡 Setups Forming Radar (Ahead of Chart)</div>
+            <div class="section-subtitle">Early liquidity sweeps & structural shifts building before candle close confirmation</div>
           </div>
         </div>
+        <div id="forming_radar_container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px;">
+          <!-- Dynamic Forming Setups injected here -->
+        </div>
+      </section>
+
+      <!-- Signal Performance & Audit History -->
+      <div class="table-container" style="margin-top: 24px;">
+        <div class="section-header">
+          <div class="section-title">📋 Signal Audit Log</div>
+          <div class="badge" style="font-size: 12px;">Verified Confluence Records</div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Signal ID</th>
+              <th>Symbol</th>
+              <th>Direction</th>
+              <th>Grade</th>
+              <th>Score</th>
+              <th>Entry Price</th>
+              <th>Stop Loss</th>
+              <th>Take Profit</th>
+              <th>Risk:Reward</th>
+              <th>Outcome / P&L</th>
+              <th>Formed</th>
+            </tr>
+          </thead>
+          <tbody id="history_tbody">
+            <!-- Dynamic history rows -->
+          </tbody>
+        </table>
       </div>
     </div>
 
-    <!-- Signal Performance & Audit History -->
-    <div class="table-container">
-      <div class="section-header">
-        <div class="section-title">📋 Signal Execution & Audit Log</div>
-        <div class="badge" style="font-size: 12px;">Simulated & Live Trades</div>
+    <!-- ================================================================= -->
+    <!-- TAB 2: LIVE ACCOUNT TRADES & EXECUTIONS (SEPARATE FROM SIGNALS) -->
+    <!-- ================================================================= -->
+    <div id="panel_trades" class="tab-panel">
+      <section>
+        <div class="section-header">
+          <div>
+            <div class="section-title">💼 Live Account Trades & Open Positions</div>
+            <div class="section-subtitle">Real executions across connected MT5 terminals with real-time Retracement Defense Armor</div>
+          </div>
+          <div class="badge badge-live" id="open_positions_badge">0 Open Positions</div>
+        </div>
+
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Ticket #</th>
+                <th>Account</th>
+                <th>Symbol</th>
+                <th>Type</th>
+                <th>Volume (Lots)</th>
+                <th>Open Price</th>
+                <th>Current Price</th>
+                <th>Stop Loss</th>
+                <th>Take Profit</th>
+                <th>Live P/L ($)</th>
+                <th>Early Warning / Retracement Alert</th>
+              </tr>
+            </thead>
+            <tbody id="live_positions_tbody">
+              <!-- Dynamically populated open positions -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- TAB 3: MULTI-TERMINAL FLEET & DRAWDOWN ARMOR -->
+    <!-- ================================================================= -->
+    <div id="panel_fleet" class="tab-panel">
+      <section>
+        <div class="section-header">
+          <div>
+            <div class="section-title">🏦 Multi-Terminal Fleet & Prop Firm Drawdown Armor</div>
+            <div class="section-subtitle">Real-time local MT5 processes, equity baseline tracking & 4.0% daily circuit breaker armor</div>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-tf active" onclick="openAddAccountModal()">➕ Add Account ($20 min)</button>
+            <button class="btn-tf" onclick="launchAllTerminals()">🚀 Launch All MT5</button>
+          </div>
+        </div>
+
+        <div class="fleet-grid" id="fleet_cards_container">
+          <!-- Dynamic Fleet cards injected here -->
+        </div>
+      </section>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- TAB 4: CHART & MARKET STRUCTURE -->
+    <!-- ================================================================= -->
+    <div id="panel_chart" class="tab-panel">
+      <!-- Multi-Timeframe Trend & Market Structure Decomposition -->
+      <section style="margin-bottom: 24px;">
+        <div class="section-header">
+          <div>
+            <div class="section-title">📊 Multi-Timeframe Market Structure Matrix</div>
+            <div class="section-subtitle">Real-time Smart Money Concepts (SMC) trend decomposition across D1 to M5</div>
+          </div>
+          <div class="badge" id="structure_symbol_badge">Symbol: XAUUSDm</div>
+        </div>
+
+        <div class="tf-matrix-grid" id="tf_matrix_container">
+          <!-- Dynamic TF cards injected here -->
+        </div>
+      </section>
+
+      <!-- Main Chart & Side Stack -->
+      <div class="main-grid">
+        <div class="chart-container">
+          <div class="section-header" style="margin-bottom: 0;">
+            <div class="section-title">
+              <span>📈 Live Institutional Price & Sweep Zones</span>
+            </div>
+            <div class="chart-controls">
+              <button class="btn-tf active" onclick="setChartTf('M5')">M5</button>
+              <button class="btn-tf" onclick="setChartTf('M15')">M15</button>
+              <button class="btn-tf" onclick="setChartTf('H1')">H1</button>
+            </div>
+          </div>
+          <div id="tv_chart"></div>
+        </div>
+
+        <!-- Side Stack: Calculator, Liquidity Depth & Zones -->
+        <div class="side-stack">
+          <!-- Prop Firm Risk & Lot Size Calculator -->
+          <div class="panel-card glass-calculator">
+            <div class="section-title" style="font-size: 15px; display: flex; justify-content: space-between; align-items: center;">
+              <span>⚖️ Prop Firm Risk & Lot Calculator</span>
+              <div style="display: flex; gap: 4px;">
+                <button class="btn-preset active" id="btn_calc_sym_xau" onclick="setCalcInstrument('XAUUSDm')">XAU</button>
+                <button class="btn-preset" id="btn_calc_sym_btc" onclick="setCalcInstrument('BTCUSDm')">BTC</button>
+              </div>
+            </div>
+            
+            <div class="calc-presets">
+              <div class="calc-label">Select Account Size:</div>
+              <div class="preset-buttons">
+                <button class="btn-preset active" id="btn_preset_1000" onclick="setAccountPreset(1000, 'BrightFunded')">$1,000</button>
+                <button class="btn-preset" id="btn_preset_100" onclick="setAccountPreset(100, 'Exness')">$100</button>
+                <button class="btn-preset" id="btn_preset_20_hf" onclick="setAccountPreset(20, 'HF Markets')">$20 (HF)</button>
+                <button class="btn-preset" id="btn_preset_20_fbs" onclick="setAccountPreset(20, 'FBS')">$20 (FBS)</button>
+                <button class="btn-preset" id="btn_preset_custom" onclick="setAccountPreset('custom', 'Custom')">Custom</button>
+              </div>
+            </div>
+
+            <div class="calc-inputs-row">
+              <div class="calc-group">
+                <label>Account Balance ($)</label>
+                <input type="number" id="calc_balance_input" value="1000" oninput="calculateLotSize()">
+              </div>
+              <div class="calc-group">
+                <label>SL Distance (pts)</label>
+                <input type="number" step="0.1" id="calc_sl_input" value="3.5" oninput="calculateLotSize()">
+              </div>
+            </div>
+
+            <div class="calc-group" style="margin-top: 10px;">
+              <label>Risk Per Trade (%):</label>
+              <div class="risk-pct-group">
+                <button class="btn-risk active" id="risk_btn_025" onclick="setRiskPct(0.25)">0.25%</button>
+                <button class="btn-risk" id="risk_btn_050" onclick="setRiskPct(0.50)">0.50%</button>
+                <button class="btn-risk" id="risk_btn_100" onclick="setRiskPct(1.00)">1.00%</button>
+                <button class="btn-risk" id="risk_btn_200" onclick="setRiskPct(2.00)">2.00%</button>
+              </div>
+            </div>
+
+            <div class="calc-results-card">
+              <div class="calc-stat-row">
+                <span class="calc-stat-label">Max Risk Allowance:</span>
+                <span class="calc-stat-val red" id="calc_risk_usd">$2.50</span>
+              </div>
+              <div class="calc-stat-row calc-lot-highlight">
+                <span class="calc-stat-label" style="color: var(--gold-primary); font-weight: 700;">Calculated Lot Size:</span>
+                <span class="calc-stat-val gold" id="calc_lot_output" style="font-size: 18px;">0.01 LOT</span>
+              </div>
+              <div class="calc-stat-row">
+                <span class="calc-stat-label">Target TP1 Gain (1:2):</span>
+                <span class="calc-stat-val green" id="calc_tp1_gain">+$5.00 (+0.50%)</span>
+              </div>
+              <div class="calc-stat-row">
+                <span class="calc-stat-label">Target TP2 Gain (1:3+):</span>
+                <span class="calc-stat-val cyan" id="calc_tp2_gain">+$7.50 (+0.75%)</span>
+              </div>
+            </div>
+
+            <button class="btn-copy-ticket" onclick="copyOrderTicket()">
+              📋 Copy MT5 Execution Plan
+            </button>
+          </div>
+
+          <!-- Liquidity Depth & Value Area Radar -->
+          <div class="panel-card glass-liquidity">
+            <div class="section-title" style="font-size: 15px; display: flex; justify-content: space-between; align-items: center;">
+              <span>🌊 Liquidity Depth & Value Area</span>
+              <span class="trend-pill trend-bullish" id="liq_regime_badge" style="font-size: 10px;">DISCOUNT VALUE AREA</span>
+            </div>
+
+            <div class="liq-depth-track">
+              <div class="liq-meter-bar">
+                <div class="liq-cursor" id="liq_cursor_el" style="left: 45%;"></div>
+              </div>
+              <div class="liq-labels-row">
+                <span id="liq_ssl_label" class="red">SSL: 2,729.50</span>
+                <span id="liq_cur_label" style="color: var(--gold-primary); font-weight: 700;">Price: 2,735.20</span>
+                <span id="liq_bsl_label" class="cyan">BSL: 2,746.00</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-card">
+            <div class="section-title" style="font-size: 16px;">
+              <span>🛡️ Institutional Supply & Demand Zones</span>
+            </div>
+            <div id="zones_container" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">
+              <!-- Key Zones injected here -->
+            </div>
+          </div>
+        </div>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Signal ID</th>
-            <th>Symbol</th>
-            <th>Direction</th>
-            <th>Grade</th>
-            <th>Score</th>
-            <th>Entry Price</th>
-            <th>Stop Loss</th>
-            <th>Take Profit</th>
-            <th>Risk:Reward</th>
-            <th>Outcome / P&L</th>
-            <th>Formed</th>
-          </tr>
-        </thead>
-        <tbody id="history_tbody">
-          <!-- Dynamic history rows -->
-        </tbody>
-      </table>
     </div>
 
   </div>
@@ -2018,9 +2242,9 @@
             </div>
 
             <!-- Price Target Boxes -->
-            <div class="targets-grid">
+            <div class="targets-grid" style="grid-template-columns: repeat(4, 1fr);">
               <div class="target-box">
-                <span class="target-label">Entry Price</span>
+                <span class="target-label">Entry Point</span>
                 <span class="target-val gold">${s.entry_price.toFixed(2)}</span>
               </div>
               <div class="target-box">
@@ -2028,10 +2252,22 @@
                 <span class="target-val red">${s.stop_loss.toFixed(2)}</span>
               </div>
               <div class="target-box">
-                <span class="target-label">Take Profit (1:2)</span>
+                <span class="target-label">Take Profit 1</span>
                 <span class="target-val green">${s.tp1.toFixed(2)}</span>
               </div>
+              <div class="target-box">
+                <span class="target-label">Take Profit 2</span>
+                <span class="target-val cyan">${(s.tp2 || (isBuy ? s.entry_price + (s.tp1 - s.entry_price)*1.5 : s.entry_price - (s.entry_price - s.tp1)*1.5)).toFixed(2)}</span>
+              </div>
             </div>
+
+            ${(s.early_warnings && s.early_warnings.length > 0) ? `
+              <div style="background: rgba(244, 63, 94, 0.15); border: 1px solid var(--rose); border-radius: 10px; padding: 8px 12px; font-size: 12px; display: flex; align-items: center; gap: 8px;">
+                <span>⚠️</span>
+                <span style="color: #fff; font-weight: 700;">${s.early_warnings[0].title}</span>
+                <span style="color: var(--text-muted); font-size: 11px;">(${s.early_warnings[0].action_label})</span>
+              </div>
+            ` : ''}
 
             <!-- Confluence Checklist -->
             <div class="confluences-list">
@@ -2210,6 +2446,15 @@
         renderStructureMatrix(data.market_structure);
         renderSignals(activeSetups);
         renderFormingRadar(formingSetups);
+        renderLivePositions(data.positions || []);
+        renderMarketSchedules(data.market_schedules);
+        renderEarlyWarnings(data.early_warnings || []);
+
+        // Badges updates
+        const fleetBadge = document.getElementById('fleet_badge_count');
+        if (fleetBadge) fleetBadge.textContent = (data.accounts || []).length;
+        const sigBadge = document.getElementById('signals_badge_count');
+        if (sigBadge) sigBadge.textContent = activeSetups.length;
 
         // Key Zones
         if (data.market_structure) {
@@ -2230,6 +2475,117 @@
       } catch (e) {
         console.warn('Dashboard poll tick...', e);
       }
+    }
+
+    // Switch Dashboard Navigation Tabs
+    function switchDashboardTab(tabName) {
+      const tabs = ['signals', 'trades', 'fleet', 'chart'];
+      tabs.forEach(t => {
+        const btn = document.getElementById(`tab_btn_${t}`);
+        const panel = document.getElementById(`panel_${t}`);
+        if (btn) {
+          if (t === tabName) btn.classList.add('active');
+          else btn.classList.remove('active');
+        }
+        if (panel) {
+          if (t === tabName) panel.classList.add('active-panel');
+          else panel.classList.remove('active-panel');
+        }
+      });
+      // Resize chart if switching to chart tab
+      if (tabName === 'chart' && chart) {
+        setTimeout(() => {
+          const container = document.getElementById('tv_chart');
+          if (container) chart.applyOptions({ width: container.clientWidth });
+        }, 100);
+      }
+    }
+
+    // Render Market Schedule Indicators & Weekend Countdown
+    function renderMarketSchedules(schedules) {
+      if (!schedules) return;
+      const xau = schedules.XAUUSD;
+      const btc = schedules.BTCUSD;
+
+      const xauPill = document.getElementById('tick_xau_schedule');
+      if (xauPill && xau) {
+        if (xau.is_open) {
+          xauPill.className = 'schedule-pill open';
+          xauPill.textContent = 'OPEN (Active)';
+        } else {
+          xauPill.className = 'schedule-pill closed';
+          xauPill.textContent = xau.status_text || 'CLOSED (Weekend)';
+        }
+      }
+
+      const btcPill = document.getElementById('tick_btc_schedule');
+      if (btcPill && btc) {
+        btcPill.className = 'schedule-pill open';
+        btcPill.textContent = 'OPEN (24/7)';
+      }
+    }
+
+    // Render Early Warning Alerts (Ahead of Chart)
+    function renderEarlyWarnings(warnings) {
+      const banner = document.getElementById('early_warning_banner');
+      const titleEl = document.getElementById('early_warning_title');
+      const msgEl = document.getElementById('early_warning_msg');
+      const actEl = document.getElementById('early_warning_action');
+      if (!banner) return;
+
+      if (!warnings || warnings.length === 0) {
+        banner.style.display = 'none';
+        return;
+      }
+
+      const topWarn = warnings[0];
+      banner.style.display = 'flex';
+      banner.className = 'early-warning-banner' + (topWarn.severity === 'CRITICAL' ? '' : ' warning');
+      if (titleEl) titleEl.textContent = topWarn.title || '⚡ Early Warning Detected';
+      if (msgEl) msgEl.textContent = topWarn.message || '';
+      if (actEl) actEl.textContent = topWarn.action_label || 'Recommended: Move SL to Breakeven (+0.2R)';
+    }
+
+    // Render Live Account Trades & Open Positions Table
+    function renderLivePositions(positions) {
+      const tbody = document.getElementById('live_positions_tbody');
+      const badge = document.getElementById('open_positions_badge');
+      const tabBadge = document.getElementById('live_trades_badge_count');
+      if (!tbody) return;
+
+      const count = (positions || []).length;
+      if (badge) badge.textContent = `${count} Open Position${count === 1 ? '' : 's'}`;
+      if (tabBadge) tabBadge.textContent = count;
+
+      if (!positions || positions.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="11" class="empty-state">No open positions on connected accounts. Awaiting trade execution or new signal.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = positions.map(p => {
+        const isBuy = (p.type || '').toUpperCase() === 'BUY';
+        const pnl = Number(p.profit || 0.0);
+        const pnlSign = pnl >= 0 ? '+' : '';
+        const pnlClass = pnl >= 0 ? 'green' : 'red';
+        const warningText = p.early_warning ? `⚠️ ${p.early_warning}` : '🛡️ Structure Safe (In Profit Target Range)';
+        const warningColor = p.early_warning ? 'var(--rose)' : 'var(--emerald)';
+
+        return `
+          <tr>
+            <td>#${p.ticket}</td>
+            <td style="font-weight: 700; color: var(--gold-primary);">${p.account_id || 'ACCOUNT_1'}</td>
+            <td style="font-weight: 700;">${p.symbol}</td>
+            <td><span class="${isBuy ? 'signal-dir-buy' : 'signal-dir-sell'}" style="padding: 2px 8px; font-size: 11px;">${p.type}</span></td>
+            <td>${Number(p.volume).toFixed(2)}</td>
+            <td>${Number(p.open_price).toFixed(2)}</td>
+            <td style="font-weight: 700;">${Number(p.current_price).toFixed(2)}</td>
+            <td class="red">${Number(p.sl).toFixed(2)}</td>
+            <td class="green">${Number(p.tp).toFixed(2)}</td>
+            <td style="font-weight: 800; font-size: 15px;" class="${pnlClass}">${pnlSign}$${pnl.toFixed(2)}</td>
+            <td style="font-size: 12px; color: ${warningColor}; font-weight: 600;">${warningText}</td>
+          </tr>
+        `;
+      }).join('');
     }
 
     // Render Multi-Terminal Fleet Cards
