@@ -35,7 +35,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const requestedState = body.active; // boolean or undefined to toggle
+    const requestedState = body.active !== undefined ? body.active : (body.enabled !== undefined ? body.enabled : undefined);
 
     const possiblePaths = [
       path.join(process.cwd(), '..', 'dashboard', 'data.json'),

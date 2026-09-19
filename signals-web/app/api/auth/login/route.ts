@@ -44,17 +44,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (error) {
-      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    if (error || !data.user) {
+      return NextResponse.json({ success: false, error: error?.message || 'User login failed.' }, { status: 400 });
     }
 
-    const userMeta = data.user?.user_metadata || {};
+    const userMeta = data.user.user_metadata || {};
     return NextResponse.json({
       success: true,
       token: data.session?.access_token,
       user: {
         id: data.user.id,
-        email: data.user.email,
+        email: data.user.email || email,
         name: userMeta.name || email.split('@')[0],
         accountType: userMeta.account_type || 'PERSONAL',
       },

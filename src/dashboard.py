@@ -21,6 +21,7 @@ from src.perfect_setups import PerfectSetupDetector
 from src.account_manager import AccountManager
 from src.market_schedule import MarketScheduleManager
 from src.early_warning import EarlyWarningDetector
+from src.ea_engine import EAExecutionEngine
 
 logger = logging.getLogger("GoldBot.Dashboard")
 
@@ -40,6 +41,7 @@ class DashboardExporter:
         self.structure_analyzer = MarketStructureAnalyzer(config)
         self.setup_detector = PerfectSetupDetector(config)
         self.account_manager = AccountManager()
+        self.ea_engine = EAExecutionEngine(config)
         self.master_ea_enabled = True
 
     def set_master_ea(self, enabled: bool):
@@ -133,8 +135,31 @@ class DashboardExporter:
             m5_candles_by_symbol = candles_by_symbol
 
             # 3. Format Open Positions
+            if (not all_positions or len(all_positions) == 0) and mt5 is not None:
+                try:
+                    mt5_positions = mt5.positions_get()
+                    if mt5_positions:
+                        all_positions = []
+                        for mp in mt5_positions:
+                            p_type_str = "BUY" if mp.type == 0 else "SELL"
+                            all_positions.append({
+                                "ticket": int(mp.ticket),
+                                "account_id": "ACCOUNT_D",
+                                "symbol": str(mp.symbol),
+                                "type": p_type_str,
+                                "volume": float(mp.volume),
+                                "price_open": float(mp.price_open),
+                                "price_current": float(mp.price_current),
+                                "sl": float(mp.sl),
+                                "tp": float(mp.tp),
+                                "profit": float(mp.profit),
+                                "magic": int(mp.magic),
+                            })
+                except Exception as e:
+                    logger.debug(f"Live MT5 positions sync: {e}")
+
             pos_list = []
-            for p in all_positions:
+            for p in (all_positions or []):
                 ticket = int(p.get("ticket", 0))
                 p_item = {
                     "ticket": ticket,
@@ -177,6 +202,13 @@ class DashboardExporter:
                     )
                     active_setups_all.extend(act_s)
                     forming_setups_all.extend(form_s)
+
+            # 4b. Autonomous EA Execution Engine (Executes on Magic #2001, isolates manual trades #0)
+            if self.master_ea_enabled and active_setups_all:
+                try:
+                    self.ea_engine.process_active_setups(active_setups_all, self.master_ea_enabled)
+                except Exception as e:
+                    logger.warning(f"[Dashboard] Autonomous EA execution cycle error: {e}")
 
             # 5. Early Warning & Profit Defense Analysis
             early_warnings_all = []

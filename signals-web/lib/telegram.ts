@@ -29,9 +29,9 @@ export async function sendTelegramSignalAlert(signal: ConfluenceSignal): Promise
 ${signal.takeProfit2 ? `🚀 *Take Profit 2:* \`${signal.takeProfit2.toFixed(2)}\` (1:3.2 R:R)\n` : ''}*Risk / Reward:* *1:${signal.riskReward.toFixed(2)}*
 
 📊 *3-Timeframe Confluence Stack:*
-• *4H Bias:* ${signal.timeframeStack['4H']}
-• *1H Setup:* ${signal.timeframeStack['1H']}
-• *30M Trigger:* ${signal.timeframeStack['30M']}
+• *D1/4H Bias:* ${signal.timeframeStack?.['4H'] || signal.htfConfluence?.dailyBias || 'Aligned'}
+• *1H Setup:* ${signal.timeframeStack?.['1H'] || signal.htfConfluence?.h4Structure || 'Aligned'}
+• *1H Trigger:* ${signal.timeframeStack?.['30M'] || signal.htfConfluence?.h1Trigger || 'Triggered'}
 
 🛡️ *Rules Checklist:*
 ${signal.confluences.map((c) => `• ${c}`).join('\n')}

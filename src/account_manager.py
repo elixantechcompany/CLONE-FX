@@ -320,18 +320,43 @@ class AccountManager:
         self.load_all()
         summary = []
         for a in self.accounts:
-            baseline = self.daily_baselines.get(a["id"], a["balance"])
+            balance = a["balance"]
+            equity = a.get("equity", balance)
+            daily_pnl = a.get("daily_pnl", 0.0)
+            connection_state = a.get("connection_state", "DISCONNECTED")
+
+            # Check live MT5 terminal connection if available
+            try:
+                import MetaTrader5 as mt5
+                term_path = self.resolve_system_mt5_path(a.get("path"))
+                init_ok = mt5.initialize(path=term_path) if term_path else mt5.initialize()
+                if init_ok:
+                    acc_info = mt5.account_info()
+                    term_info = mt5.terminal_info()
+                    if acc_info and (not a.get("login") or str(acc_info.login) == str(a.get("login"))):
+                        balance = float(acc_info.balance)
+                        equity = float(acc_info.equity)
+                        daily_pnl = float(acc_info.profit)
+                        connection_state = "CONNECTED" if (term_info and term_info.connected) else "TERMINAL_OPEN"
+                        a["balance"] = balance
+                        a["equity"] = equity
+                        a["daily_pnl"] = daily_pnl
+                        a["connection_state"] = connection_state
+            except Exception as e:
+                logger.debug(f"Live MT5 sync check: {e}")
+
+            baseline = self.daily_baselines.get(a["id"], balance)
             max_loss_dollars = baseline * (a["max_daily_loss_pct"] / 100.0)
-            cur_loss = baseline - a.get("equity", a["balance"])
+            cur_loss = baseline - equity
             drawdown_pct = max(0.0, (cur_loss / baseline) * 100.0)
 
             summary.append({
                 "id": a["id"],
                 "name": a["name"],
                 "type": a["type"],
-                "balance": a["balance"],
-                "equity": a.get("equity", a["balance"]),
-                "daily_pnl": a.get("daily_pnl", 0.0),
+                "balance": balance,
+                "equity": equity,
+                "daily_pnl": daily_pnl,
                 "daily_drawdown_pct": round(drawdown_pct, 2),
                 "max_daily_loss_pct": a["max_daily_loss_pct"],
                 "max_daily_loss_dollars": round(max_loss_dollars, 2),
@@ -340,7 +365,7 @@ class AccountManager:
                 "mode": a["mode"],
                 "execution_mode": a.get("execution_mode", "AUTOMATED_EA"),
                 "circuit_breaker_tripped": a.get("circuit_breaker_tripped", False),
-                "connection_state": a.get("connection_state", "DISCONNECTED"),
+                "connection_state": connection_state,
                 "path": a.get("path"),
                 "is_active": a.get("is_active", True),
             })
