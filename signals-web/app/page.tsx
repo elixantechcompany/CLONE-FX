@@ -262,13 +262,20 @@ export default function DashboardPage() {
   const triggerScan = async () => {
     try {
       setScanning(true);
-      const res = await fetch('/api/scan', { method: 'POST' });
-      await res.json();
-      showToast('Scan complete across open pairs! (Gold checked for weekend close)');
+      const res = await fetch('/api/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        showToast(`Scan error: ${data.error || 'Server error'}`);
+        return;
+      }
+      showToast('Scan complete! BTCUSD (24/7 active). Gold scans safely paused for weekend.');
       await fetchData();
       playChime();
-    } catch (e) {
-      showToast('Scan request failed');
+    } catch (e: any) {
+      showToast(`Scan request failed: ${e.message || 'Network error'}`);
     } finally {
       setScanning(false);
     }
