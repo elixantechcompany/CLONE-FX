@@ -38,13 +38,17 @@ export interface TriggerEvaluation {
   explanation: string;
 }
 
-export type SignalDirection = 'LONG' | 'SHORT' | 'BUY' | 'SELL';
+export type SignalDirection = 'BUY' | 'SELL' | 'LONG' | 'SHORT';
+export type OrderAction = 'BUY' | 'SELL';
+export type MT5OrderType = 'BUY MARKET' | 'BUY LIMIT' | 'BUY STOP' | 'SELL MARKET' | 'SELL LIMIT' | 'SELL STOP';
 export type ConfluenceScore = '3/3' | '2/3' | 'A+ PERFECT SETUP' | 'GRADE B' | 'GRADE C';
+export type TradeOutcome = 'WIN' | 'LOSS' | 'BREAKEVEN' | 'OPEN';
 
 export interface ConfluenceSignal {
   id?: string;
   symbol: string;
-  direction: SignalDirection;
+  direction: SignalDirection; // 'BUY' or 'SELL'
+  orderType?: MT5OrderType;
   entryPrice: number;
   stopLoss: number;
   takeProfit1: number;
@@ -66,6 +70,36 @@ export interface ConfluenceSignal {
   createdAt?: string;
   formed_time?: string;
   timestamp?: number;
+}
+
+export interface JournalEntry {
+  id: string;
+  user_email?: string;
+  symbol: string;
+  order_action: OrderAction;
+  order_type: MT5OrderType;
+  entry_price: number;
+  exit_price?: number;
+  stop_loss: number;
+  take_profit: number;
+  lot_size: number;
+  profit_usd: number;
+  rr_ratio: number;
+  outcome: TradeOutcome;
+  session: string; // 'London', 'New York', 'Asian', 'Overlap'
+  setup_type: string; // 'Liquidity Sweep', 'Break of Structure (BOS)', 'FVG Tap', 'Trend Continuation', 'Manual Scalp'
+  emotions?: string; // 'Disciplined & Calm', 'Patient Entry', 'FOMO / Chased', 'Rushed Close'
+  notes?: string;
+  created_at: string;
+  closed_at?: string;
+}
+
+export interface UserProfile {
+  name: string;
+  email: string;
+  accountType: 'PERSONAL' | 'PROP_FIRM' | 'CENT_ACCOUNT' | 'PRO_INSTITUTIONAL';
+  isLoggedIn: boolean;
+  avatarUrl?: string;
 }
 
 export interface MarketSchedule {

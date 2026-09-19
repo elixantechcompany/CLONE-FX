@@ -242,6 +242,38 @@ body {
   color: var(--text-muted);
 }
 
+/* Text Gradients & Standard background-clip */
+.gold-text-gradient {
+  background: var(--gold-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.white-gold-gradient {
+  background: linear-gradient(135deg, #ffffff 40%, #ffd700 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Order Direction Badges */
+.badge-buy {
+  background: rgba(16, 185, 129, 0.18);
+  border: 1px solid var(--border-emerald);
+  color: #34d399;
+  font-weight: 800;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+}
+
+.badge-sell {
+  background: rgba(244, 63, 94, 0.18);
+  border: 1px solid var(--border-rose);
+  color: #fb7185;
+  font-weight: 800;
+  box-shadow: 0 0 10px rgba(244, 63, 94, 0.2);
+}
+
 /* Colors */
 .gold { color: var(--gold-primary); }
 .green { color: var(--emerald); }
