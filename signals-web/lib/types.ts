@@ -76,6 +76,7 @@ export interface ConfluenceSignal {
   status: 'ACTIVE' | 'EXPIRED' | 'HIT_TP' | 'HIT_SL' | 'NOT_TAKEN' | 'ACTIVE_READY' | 'FORMING';
   outcomeNotes?: string;
   setup_summary?: string;
+  reason?: string;
   createdAt?: string;
   formed_time?: string;
   timestamp?: number;
