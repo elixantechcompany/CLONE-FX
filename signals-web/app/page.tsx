@@ -674,6 +674,30 @@ export default function DashboardPage() {
     }
   };
 
+  // Launch Dedicated Local MT5 Terminal
+  const [launchingId, setLaunchingId] = useState<string | null>(null);
+  const handleLaunchTerminal = async (accId: string, accName: string) => {
+    try {
+      setLaunchingId(accId);
+      showToast(`Launching MT5 terminal for ${accName}...`);
+      const res = await fetch('/api/accounts/launch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: accId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`✅ MetaTrader 5 terminal launched for ${accName}!`);
+      } else {
+        showToast(`⚠️ Terminal Launch: ${data.error || 'Check MT5 installation'}`);
+      }
+    } catch (err: any) {
+      showToast(`❌ Error launching terminal: ${err.message}`);
+    } finally {
+      setLaunchingId(null);
+    }
+  };
+
   // Filter Signals
   const filteredSignals = signals.filter((s) => {
     if (symbolFilter !== 'ALL' && s.symbol !== symbolFilter) return false;
@@ -1887,9 +1911,10 @@ export default function DashboardPage() {
                       <button
                         className="btn"
                         style={{ fontSize: '11px', padding: '4px 10px' }}
-                        onClick={() => showToast(`Launching MT5 terminal for ${acc.name}...`)}
+                        disabled={launchingId === acc.id}
+                        onClick={() => handleLaunchTerminal(acc.id, acc.name)}
                       >
-                        <Play size={11} /> Launch MT5
+                        {launchingId === acc.id ? <RefreshCw size={11} className="spin" /> : <Play size={11} />} Launch MT5
                       </button>
                       <button
                         className="btn"

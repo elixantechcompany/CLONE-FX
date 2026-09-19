@@ -29,7 +29,22 @@ personal_account:
 accounts:
   enabled: true
   multi_account_mode: true
-  account_list: []
+  account_list:
+  - id: account_d
+    name: GOLD CLONE
+    type: REAL
+    balance: 20.0
+    mode: INDEPENDENT
+    execution_mode: AUTOMATED_EA
+    copy_enabled: false
+    max_daily_loss_pct: 10.0
+    risk_per_trade_pct: 1.0
+    min_rr: 2.0
+    env_login_var: ACCOUNT_D_LOGIN
+    env_password_var: ACCOUNT_D_PASSWORD
+    env_server_var: ACCOUNT_D_SERVER
+    env_path_var: ACCOUNT_D_MT5_PATH
+    is_active: true
 copy_engine:
   enabled: false
   master_account_id: ''

@@ -225,6 +225,26 @@ class AccountManager:
             return True
         return False
 
+    @staticmethod
+    def resolve_system_mt5_path(custom_path: Optional[str] = None) -> Optional[str]:
+        """Resolves valid MT5 terminal64.exe executable from custom path or standard Windows locations."""
+        if custom_path and os.path.exists(custom_path):
+            return custom_path
+
+        candidates = [
+            r"C:\Program Files\MetaTrader 5\terminal64.exe",
+            r"C:\Program Files\Exness MT5\terminal64.exe",
+            r"C:\Program Files\Exness MetaTrader 5\terminal64.exe",
+            r"C:\Program Files\FTMO MetaTrader 5\terminal64.exe",
+            r"C:\Program Files\BrightFunded MT5\terminal64.exe",
+            r"C:\Program Files\MetaTrader 5 Terminal\terminal64.exe",
+            os.path.expanduser(r"~\AppData\Local\Programs\MetaTrader 5\terminal64.exe"),
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                return c
+        return None
+
     def launch_terminal(self, acc_id: str) -> bool:
         """
         Launches the dedicated MT5 terminal executable for this account locally.
@@ -232,18 +252,15 @@ class AccountManager:
         """
         acc_id = acc_id.lower()
         acc = next((a for a in self.accounts if a["id"] == acc_id), None)
-        if not acc:
-            logger.error(f"Cannot launch terminal: Account {acc_id} not found")
-            return False
 
-        path = acc.get("path")
-        if not path or not os.path.exists(path):
-            logger.error(f"Cannot launch terminal: Path does not exist: {path}")
+        path = self.resolve_system_mt5_path(acc.get("path") if acc else None)
+        if not path:
+            logger.error("Cannot launch terminal: MT5 executable not found on system")
             return False
 
         try:
             terminal_dir = str(Path(path).parent)
-            logger.info(f"Launching MT5 terminal process for [{acc_id.upper()}] -> {path}")
+            logger.info(f"Launching MT5 terminal process for [{acc_id.upper() if acc else 'DEFAULT'}] -> {path}")
             subprocess.Popen([path], cwd=terminal_dir, shell=False)
             return True
         except Exception as e:
