@@ -33,6 +33,7 @@ signals-web/node_modules/
 signals-web/.next/
 signals-web/.env.local
 signals-web/.env*.local
+signals-web/package-lock.json
 .next/
 dist/
 build/
