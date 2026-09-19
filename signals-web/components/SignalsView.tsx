@@ -275,7 +275,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
 
                   {/* Institutional Reason / Catalyst */}
                   <p className="text-xs text-slate-300 my-2 leading-relaxed">
-                    {sig.reason || 'D1 Macro Accumulation + 4H Liquidity Sweep of previous Asian low + 1H structural reclaim with Fair Value Gap fill.'}
+                    {(sig as any).reason || sig.setup_summary || 'D1 Macro Accumulation + 4H Liquidity Sweep of previous Asian low + 1H structural reclaim with Fair Value Gap fill.'}
                   </p>
 
                   {/* Actions */}
