@@ -20,6 +20,11 @@ from dotenv import load_dotenv
 from src.dashboard import DashboardExporter
 from src.account_manager import AccountManager
 
+try:
+    import MetaTrader5 as mt5
+except ImportError:
+    mt5 = None
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -61,6 +66,52 @@ class DashboardHTTPRequestHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"accounts": fleet}).encode("utf-8"))
             return
+
+        if self.path.startswith("/api/rates"):
+            from urllib.parse import urlparse, parse_qs
+            parsed_url = urlparse(self.path)
+            params = parse_qs(parsed_url.query)
+            sym = params.get("symbol", ["XAUUSD"])[0]
+            tf = params.get("tf", ["H4"])[0].upper()
+            count = int(params.get("count", [60])[0])
+
+            tf_map = {
+                "M1": 1, "M5": 5, "M15": 15, "M30": 30,
+                "H1": 16385, "H4": 16388, "D1": 16408, "1D": 16408
+            }
+            tf_const = tf_map.get(tf, 16388)
+
+            candles = []
+            if mt5 is not None:
+                try:
+                    rates = mt5.copy_rates_from_pos(sym, tf_const, 0, count)
+                    if rates is None or len(rates) == 0:
+                        rates = mt5.copy_rates_from_pos(sym + "m", tf_const, 0, count)
+                    if rates is not None and len(rates) > 0:
+                        for r in rates:
+                            candles.append({
+                                "time": int(r["time"]),
+                                "open": float(r["open"]),
+                                "high": float(r["high"]),
+                                "low": float(r["low"]),
+                                "close": float(r["close"]),
+                                "volume": int(r["tick_volume"]),
+                            })
+                except Exception as e:
+                    logger.debug(f"Rates fetch error: {e}")
+
+            if candles:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "symbol": sym, "timeframe": tf, "candles": candles}).encode("utf-8"))
+            else:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": "MT5_OFFLINE"}).encode("utf-8"))
+            return
+
         super().do_GET()
 
     def do_POST(self):

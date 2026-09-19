@@ -5,7 +5,20 @@ import {
   TriggerEvaluation,
   ConfluenceSignal,
   MarketDataBundle,
+  MT5OrderType,
 } from './types';
+
+/**
+ * Institutional Confluence & Swing Holding Engine
+ * Designed specifically for Higher Timeframes (D1, 4H, 1H) holding trades:
+ * - Tier 1: Daily (D1) Macro Directional Bias & Institutional Trend
+ * - Tier 2: 4-Hour (4H) Intermediate Swing Structure & Key Reaction Zone
+ * - Tier 3: 1-Hour (1H) Structural Shift, Reclaim & Execution Trigger
+ *
+ * Risk Architecture:
+ * - Wide, structural invalidation stop losses that give holding positions room to breathe.
+ * - Multi-session profit targets: TP1 (1:2.0 - 1:2.5) and TP2 (1:3.5 - 1:5.0+).
+ */
 
 /**
  * Calculates Exponential Moving Average (EMA)
@@ -15,7 +28,6 @@ export function calculateEMA(candles: Candle[], period: number): number[] {
   const k = 2 / (period + 1);
   const emaValues: number[] = [];
 
-  // Start with SMA for the first value
   let sum = 0;
   for (let i = 0; i < period; i++) {
     sum += candles[i].close;
@@ -38,7 +50,6 @@ export function calculateEMA(candles: Candle[], period: number): number[] {
  */
 export function calculateATR(candles: Candle[], period: number = 14): number {
   if (candles.length < period + 1) {
-    // Fallback baseline
     const last = candles[candles.length - 1];
     return Math.max(last.high - last.low, 2.0);
   }
@@ -55,99 +66,108 @@ export function calculateATR(candles: Candle[], period: number = 14): number {
     trValues.push(tr);
   }
 
-  // Simple average of recent TRs
   const recentTR = trValues.slice(-period);
   const atr = recentTR.reduce((acc, val) => acc + val, 0) / recentTR.length;
   return Number(atr.toFixed(4));
 }
 
 /**
- * 4H — Macro Trend Bias Evaluator
- * Enforces: EMA 20/50 slope & alignment + Swing Market Structure (HH/HL vs LH/LL)
+ * Tier 1: Daily (D1) Macro Trend Bias Evaluator
+ * Enforces: Daily EMA20/50 alignment & multi-day swing structure
  */
-export function evaluate4HBias(candles4h: Candle[]): BiasEvaluation {
-  if (candles4h.length < 50) {
+export function evaluateD1Bias(candlesD1: Candle[]): BiasEvaluation {
+  if (candlesD1.length < 20) {
     return {
       direction: 'NO_BIAS',
       ema20: 0,
       ema50: 0,
       trendStructure: 'RANGING',
-      explanation: 'Insufficient 4H candle data for EMA50 calculation',
+      explanation: 'Insufficient D1 candle data for Macro Bias calculation',
     };
   }
 
-  const ema20Series = calculateEMA(candles4h, 20);
-  const ema50Series = calculateEMA(candles4h, 50);
+  const ema20Series = calculateEMA(candlesD1, Math.min(20, Math.floor(candlesD1.length / 2)));
+  const ema50Series = calculateEMA(candlesD1, Math.min(50, candlesD1.length - 1));
 
-  const latest20 = ema20Series[ema20Series.length - 1];
-  const latest50 = ema50Series[ema50Series.length - 1];
-  const lastClose = candles4h[candles4h.length - 1].close;
+  const latest20 = ema20Series.length > 0 ? ema20Series[ema20Series.length - 1] : candlesD1[candlesD1.length - 1].close;
+  const latest50 = ema50Series.length > 0 ? ema50Series[ema50Series.length - 1] : latest20;
+  const lastClose = candlesD1[candlesD1.length - 1].close;
 
-  // Evaluate swing points (last 20 bars)
-  const window = candles4h.slice(-20);
+  // Evaluate multi-day swing points
+  const window = candlesD1.slice(-20);
   let higherHighs = 0;
   let lowerLows = 0;
 
   for (let i = 2; i < window.length - 2; i++) {
     if (window[i].high > window[i - 1].high && window[i].high > window[i + 1].high) {
-      if (i > 5 && window[i].high > window[i - 4].high) higherHighs++;
+      if (i > 4 && window[i].high > window[i - 3].high) higherHighs++;
     }
     if (window[i].low < window[i - 1].low && window[i].low < window[i + 1].low) {
-      if (i > 5 && window[i].low < window[i - 4].low) lowerLows++;
+      if (i > 4 && window[i].low < window[i - 3].low) lowerLows++;
     }
   }
 
-  const isBullishEMAs = lastClose > latest20 && latest20 > latest50;
-  const isBearishEMAs = lastClose < latest20 && latest20 < latest50;
+  const isBullish = lastClose >= latest20 && latest20 >= latest50;
+  const isBearish = lastClose <= latest20 && latest20 <= latest50;
 
-  if (isBullishEMAs && higherHighs >= lowerLows) {
+  if (isBullish && higherHighs >= lowerLows) {
     return {
       direction: 'LONG_BIAS',
       ema20: Number(latest20.toFixed(2)),
       ema50: Number(latest50.toFixed(2)),
       trendStructure: 'HIGHER_HIGHS_LOWS',
-      explanation: `4H UPTREND: Price (${lastClose.toFixed(2)}) > EMA20 (${latest20.toFixed(2)}) > EMA50 (${latest50.toFixed(2)}) with Bullish Structure`,
+      explanation: `D1 MACRO BULLISH: Price (${lastClose.toFixed(2)}) > EMA20 (${latest20.toFixed(2)}) > EMA50 (${latest50.toFixed(2)}) with Bullish Expansion`,
     };
-  } else if (isBearishEMAs && lowerLows >= higherHighs) {
+  } else if (isBearish && lowerLows >= higherHighs) {
     return {
       direction: 'SHORT_BIAS',
       ema20: Number(latest20.toFixed(2)),
       ema50: Number(latest50.toFixed(2)),
       trendStructure: 'LOWER_HIGHS_LOWS',
-      explanation: `4H DOWNTREND: Price (${lastClose.toFixed(2)}) < EMA20 (${latest20.toFixed(2)}) < EMA50 (${latest50.toFixed(2)}) with Bearish Structure`,
+      explanation: `D1 MACRO BEARISH: Price (${lastClose.toFixed(2)}) < EMA20 (${latest20.toFixed(2)}) < EMA50 (${latest50.toFixed(2)}) with Bearish Expansion`,
     };
   }
 
-  return {
-    direction: 'NO_BIAS',
-    ema20: Number(latest20.toFixed(2)),
-    ema50: Number(latest50.toFixed(2)),
-    trendStructure: 'RANGING',
-    explanation: `4H RANGING / CONSOLIDATION near EMA20 (${latest20.toFixed(2)}). Hard gate active: No trades in chop.`,
-  };
+  // If EMAs and swings are mixed, check direction relative to EMA20
+  if (lastClose > latest20) {
+    return {
+      direction: 'LONG_BIAS',
+      ema20: Number(latest20.toFixed(2)),
+      ema50: Number(latest50.toFixed(2)),
+      trendStructure: 'RANGING',
+      explanation: `D1 Range Support: Price held above Daily EMA20 (${latest20.toFixed(2)}). Bullish Reversal Bias active.`,
+    };
+  } else {
+    return {
+      direction: 'SHORT_BIAS',
+      ema20: Number(latest20.toFixed(2)),
+      ema50: Number(latest50.toFixed(2)),
+      trendStructure: 'RANGING',
+      explanation: `D1 Range Resistance: Price below Daily EMA20 (${latest20.toFixed(2)}). Bearish Reversal Bias active.`,
+    };
+  }
 }
 
 /**
- * 1H — Setup Detection Evaluator
- * Only evaluated if 4H has a bias. Looks for price returning to a key level in the bias direction.
+ * Tier 2: 4-Hour (4H) Intermediate Swing Structure & Setup Detection
+ * Looks for price returning to key 4H swing levels, order blocks, or liquidity pools.
  */
-export function evaluate1HSetup(
-  candles1h: Candle[],
-  bias: BiasEvaluation
+export function evaluate4HSetup(
+  candles4h: Candle[],
+  biasD1: BiasEvaluation
 ): SetupEvaluation {
-  if (bias.direction === 'NO_BIAS' || candles1h.length < 20) {
+  if (biasD1.direction === 'NO_BIAS' || candles4h.length < 20) {
     return {
       status: 'NO_SETUP',
       keyLevel: 0,
       zoneType: 'SUPPORT_DEMAND',
-      explanation: 'No 4H bias established or insufficient 1H candles',
+      explanation: 'No D1 macro bias established or insufficient 4H candles',
     };
   }
 
-  const recentCandles = candles1h.slice(-25);
+  const recentCandles = candles4h.slice(-30);
   const currentPrice = recentCandles[recentCandles.length - 1].close;
 
-  // Find swing highs & lows in recent 1H price action
   let swingHigh = -Infinity;
   let swingLow = Infinity;
 
@@ -161,32 +181,30 @@ export function evaluate1HSetup(
     }
   }
 
-  if (bias.direction === 'LONG_BIAS') {
-    // Look for pullback to prior swing low (SSL sweep) or retest of key demand
-    const demandLevel = swingLow !== Infinity ? swingLow : currentPrice * 0.995;
+  if (biasD1.direction === 'LONG_BIAS') {
+    const demandLevel = swingLow !== Infinity ? swingLow : currentPrice * 0.992;
     const distanceToDemand = Math.abs(currentPrice - demandLevel);
-    const maxThreshold = currentPrice * 0.006; // Within 0.6% of key demand
+    const maxThreshold = currentPrice * 0.015; // Within 1.5% for 4H swing holding
 
-    if (distanceToDemand <= maxThreshold || currentPrice <= demandLevel * 1.002) {
+    if (distanceToDemand <= maxThreshold || currentPrice <= demandLevel * 1.008) {
       return {
         status: 'SETUP_FORMING',
         keyLevel: Number(demandLevel.toFixed(2)),
         zoneType: 'SUPPORT_DEMAND',
-        explanation: `1H Setup Forming: Price retesting Key Demand / Prior Reaction Zone at ${demandLevel.toFixed(2)}`,
+        explanation: `4H Swing Setup: Price retesting 4H Major Demand / Swing Low Pool at ${demandLevel.toFixed(2)}`,
       };
     }
-  } else if (bias.direction === 'SHORT_BIAS') {
-    // Look for pullback to prior swing high (BSL sweep) or supply zone
-    const supplyLevel = swingHigh !== -Infinity ? swingHigh : currentPrice * 1.005;
+  } else if (biasD1.direction === 'SHORT_BIAS') {
+    const supplyLevel = swingHigh !== -Infinity ? swingHigh : currentPrice * 1.008;
     const distanceToSupply = Math.abs(supplyLevel - currentPrice);
-    const maxThreshold = currentPrice * 0.006; // Within 0.6% of key supply
+    const maxThreshold = currentPrice * 0.015;
 
-    if (distanceToSupply <= maxThreshold || currentPrice >= supplyLevel * 0.998) {
+    if (distanceToSupply <= maxThreshold || currentPrice >= supplyLevel * 0.992) {
       return {
         status: 'SETUP_FORMING',
         keyLevel: Number(supplyLevel.toFixed(2)),
         zoneType: 'RESISTANCE_SUPPLY',
-        explanation: `1H Setup Forming: Price retesting Key Supply / Prior Resistance Zone at ${supplyLevel.toFixed(2)}`,
+        explanation: `4H Swing Setup: Price retesting 4H Major Supply / Swing High Pool at ${supplyLevel.toFixed(2)}`,
       };
     }
   }
@@ -195,32 +213,32 @@ export function evaluate1HSetup(
     status: 'NO_SETUP',
     keyLevel: 0,
     zoneType: 'SUPPORT_DEMAND',
-    explanation: '1H Price currently mid-range; not at key structural reaction zone',
+    explanation: '4H Price currently mid-range; awaiting pullback to structural swing boundaries',
   };
 }
 
 /**
- * 30M — Entry Trigger Evaluator
- * Only evaluated if 1H has a forming setup. Looks for rejection candle, momentum shift or minor break.
+ * Tier 3: 1-Hour (1H) Structural Confirmation & Execution Trigger
+ * Confirms rejection wick, liquidity sweep reclaim, or momentum close on the 1H chart.
  */
-export function evaluate30MTrigger(
-  candles30m: Candle[],
-  bias: BiasEvaluation,
-  setup: SetupEvaluation
+export function evaluate1HTrigger(
+  candles1h: Candle[],
+  biasD1: BiasEvaluation,
+  setup4h: SetupEvaluation
 ): TriggerEvaluation {
-  if (setup.status !== 'SETUP_FORMING' || candles30m.length < 15) {
+  if (setup4h.status !== 'SETUP_FORMING' || candles1h.length < 15) {
     return {
       status: 'NO_TRIGGER',
       triggerPrice: 0,
       triggerType: 'REJECTION_CANDLE',
       atr30m: 0,
-      explanation: '1H setup not confirmed; trigger inspection skipped',
+      explanation: '4H setup not confirmed; 1H trigger inspection skipped',
     };
   }
 
-  const atr30m = calculateATR(candles30m, 14);
-  const triggerBar = candles30m[candles30m.length - 1];
-  const prevBar = candles30m[candles30m.length - 2];
+  const atr1h = calculateATR(candles1h, 14);
+  const triggerBar = candles1h[candles1h.length - 1];
+  const prevBar = candles1h[candles1h.length - 2];
 
   const totalRange = triggerBar.high - triggerBar.low;
   if (totalRange <= 0) {
@@ -228,44 +246,42 @@ export function evaluate30MTrigger(
       status: 'NO_TRIGGER',
       triggerPrice: triggerBar.close,
       triggerType: 'REJECTION_CANDLE',
-      atr30m,
-      explanation: 'Zero candle range detected on 30M',
+      atr30m: atr1h,
+      explanation: 'Zero candle range detected on 1H',
     };
   }
 
   const upperWick = triggerBar.high - Math.max(triggerBar.open, triggerBar.close);
   const lowerWick = Math.min(triggerBar.open, triggerBar.close) - triggerBar.low;
 
-  if (bias.direction === 'LONG_BIAS') {
-    // Bullish Rejection: Lower wick >= 25% of total bar OR Bullish Close higher than previous high
-    const isLowerWickRejection = lowerWick / totalRange >= 0.25;
-    const isBullishBreak = triggerBar.close > prevBar.high && triggerBar.close > triggerBar.open;
+  if (biasD1.direction === 'LONG_BIAS') {
+    const isLowerWickRejection = lowerWick / totalRange >= 0.20;
+    const isBullishBreak = triggerBar.close > prevBar.high || triggerBar.close > triggerBar.open;
 
     if (isLowerWickRejection || isBullishBreak) {
       return {
         status: 'ENTRY_CONFIRMED',
         triggerPrice: Number(triggerBar.close.toFixed(2)),
         triggerType: isLowerWickRejection ? 'REJECTION_CANDLE' : 'STRUCTURE_BREAK',
-        atr30m,
+        atr30m: atr1h,
         explanation: isLowerWickRejection
-          ? `30M Bullish Rejection Pin-bar (${((lowerWick / totalRange) * 100).toFixed(0)}% lower wick) at demand level`
-          : `30M Bullish Closed Candle Breakout above previous high (${prevBar.high.toFixed(2)})`,
+          ? `1H Institutional Bullish Rejection Pin-bar (${((lowerWick / totalRange) * 100).toFixed(0)}% lower wick) reclaiming demand level`
+          : `1H Bullish Closed Candle Reclaim above prior structural level (${prevBar.high.toFixed(2)})`,
       };
     }
-  } else if (bias.direction === 'SHORT_BIAS') {
-    // Bearish Rejection: Upper wick >= 25% of total bar OR Bearish Close lower than previous low
-    const isUpperWickRejection = upperWick / totalRange >= 0.25;
-    const isBearishBreak = triggerBar.close < prevBar.low && triggerBar.close < triggerBar.open;
+  } else if (biasD1.direction === 'SHORT_BIAS') {
+    const isUpperWickRejection = upperWick / totalRange >= 0.20;
+    const isBearishBreak = triggerBar.close < prevBar.low || triggerBar.close < triggerBar.open;
 
     if (isUpperWickRejection || isBearishBreak) {
       return {
         status: 'ENTRY_CONFIRMED',
         triggerPrice: Number(triggerBar.close.toFixed(2)),
         triggerType: isUpperWickRejection ? 'REJECTION_CANDLE' : 'STRUCTURE_BREAK',
-        atr30m,
+        atr30m: atr1h,
         explanation: isUpperWickRejection
-          ? `30M Bearish Rejection Pin-bar (${((upperWick / totalRange) * 100).toFixed(0)}% upper wick) at supply level`
-          : `30M Bearish Closed Candle Breakdown below previous low (${prevBar.low.toFixed(2)})`,
+          ? `1H Institutional Bearish Rejection Pin-bar (${((upperWick / totalRange) * 100).toFixed(0)}% upper wick) rejecting supply level`
+          : `1H Bearish Closed Candle Breakdown below prior structural level (${prevBar.low.toFixed(2)})`,
       };
     }
   }
@@ -274,77 +290,79 @@ export function evaluate30MTrigger(
     status: 'NO_TRIGGER',
     triggerPrice: triggerBar.close,
     triggerType: 'REJECTION_CANDLE',
-    atr30m,
-    explanation: '30M candle did not produce confirmed rejection wick or momentum breakout',
+    atr30m: atr1h,
+    explanation: '1H candle awaiting confirmed rejection wick or momentum breakout',
   };
 }
 
 /**
- * Full Confluence Engine: Orchestrates 4H, 1H, and 30M alignment
+ * Full Confluence Engine: Orchestrates D1, 4H, and 1H alignment for Holding/Swing Trades
  */
 export function runConfluenceScan(bundle: MarketDataBundle): ConfluenceSignal | null {
   const { symbol, timeframes } = bundle;
+  const candlesD1 = timeframes['1d'] || timeframes['4h'];
   const candles4h = timeframes['4h'];
   const candles1h = timeframes['1h'];
-  const candles30m = timeframes['30m'];
 
-  // Step 1: 4H Bias
-  const bias4h = evaluate4HBias(candles4h);
-  if (bias4h.direction === 'NO_BIAS') {
-    return null; // Enforce: Skip trading in ranging market to protect prop firm capital
+  // Step 1: D1 Macro Bias
+  const biasD1 = evaluateD1Bias(candlesD1);
+  if (biasD1.direction === 'NO_BIAS') {
+    return null;
   }
 
-  // Step 2: 1H Setup Detection
-  const setup1h = evaluate1HSetup(candles1h, bias4h);
-  if (setup1h.status !== 'SETUP_FORMING') {
-    return null; // No trade if price hasn't returned to a defined key level
+  // Step 2: 4H Setup Detection
+  const setup4h = evaluate4HSetup(candles4h, biasD1);
+  if (setup4h.status !== 'SETUP_FORMING') {
+    return null;
   }
 
-  // Step 3: 30M Entry Trigger
-  const trigger30m = evaluate30MTrigger(candles30m, bias4h, setup1h);
-  if (trigger30m.status !== 'ENTRY_CONFIRMED') {
-    return null; // No trade without confirmation at the level
+  // Step 3: 1H Entry Trigger
+  const trigger1h = evaluate1HTrigger(candles1h, biasD1, setup4h);
+  if (trigger1h.status !== 'ENTRY_CONFIRMED') {
+    return null;
   }
 
-  // 3/3 Alignment Confirmed!
-  const direction = bias4h.direction === 'LONG_BIAS' ? 'LONG' : 'SHORT';
-  const entryPrice = trigger30m.triggerPrice;
-  const atr = trigger30m.atr30m;
+  // Confirmed 3-Timeframe Alignment
+  const direction = biasD1.direction === 'LONG_BIAS' ? 'BUY' : 'SELL';
+  const entryPrice = trigger1h.triggerPrice;
+  const atr = trigger1h.atr30m; // 1H ATR
 
-  // Risk Parameters: 1.5x ATR on 30M entry timeframe
+  // Holding Trade Risk Parameters:
+  // Stops are placed with wide structural invalidation buffer (NOT tight scalp stops)
   const isGold = symbol === 'XAUUSD';
-  const minSlDistance = isGold ? 2.50 : 150.0;
-  const rawSlDistance = Math.max(atr * 1.5, minSlDistance);
+  const minSlDistance = isGold ? 14.00 : 850.0;
+  const rawSlDistance = Math.max(atr * 2.2, minSlDistance);
   const slDistance = Number(rawSlDistance.toFixed(2));
 
-  // Minimum 1:2.0 Risk-to-Reward Ratio
+  // Minimum 1:2.0 Risk-to-Reward Ratio for TP1, and 1:3.5 for multi-day holding TP2
   const tpDistance1 = Number((slDistance * 2.0).toFixed(2));
-  const tpDistance2 = Number((slDistance * 3.2).toFixed(2));
+  const tpDistance2 = Number((slDistance * 3.5).toFixed(2));
 
-  const stopLoss = direction === 'LONG'
+  const stopLoss = direction === 'BUY'
     ? Number((entryPrice - slDistance).toFixed(2))
     : Number((entryPrice + slDistance).toFixed(2));
 
-  const takeProfit1 = direction === 'LONG'
+  const takeProfit1 = direction === 'BUY'
     ? Number((entryPrice + tpDistance1).toFixed(2))
     : Number((entryPrice - tpDistance1).toFixed(2));
 
-  const takeProfit2 = direction === 'LONG'
+  const takeProfit2 = direction === 'BUY'
     ? Number((entryPrice + tpDistance2).toFixed(2))
     : Number((entryPrice - tpDistance2).toFixed(2));
 
-  const confluences: string[] = [
-    `4H Macro Bias: ${bias4h.explanation}`,
-    `1H Structure: ${setup1h.explanation}`,
-    `30M Trigger: ${trigger30m.explanation}`,
-    `Stop Loss: 1.5x 30M ATR (${slDistance.toFixed(2)} pts)`,
-    `Take Profit: 1:2.00 Risk-to-Reward Target (${tpDistance1.toFixed(2)} pts)`,
-    `Prop Firm Filter: 3/3 Genuine Multi-Timeframe Alignment Confirmed`,
-  ];
-
   const limitPrice = direction === 'BUY'
-    ? Number((entryPrice - slDistance * 0.25).toFixed(2))
-    : Number((entryPrice + slDistance * 0.25).toFixed(2));
+    ? Number((entryPrice - slDistance * 0.20).toFixed(2))
+    : Number((entryPrice + slDistance * 0.20).toFixed(2));
+
+  const confluences: string[] = [
+    `D1 Macro Bias: ${biasD1.explanation}`,
+    `4H Swing Structure: ${setup4h.explanation}`,
+    `1H Confirmation Trigger: ${trigger1h.explanation}`,
+    `Holding Stop Loss: Structural Invalidation Buffer (${slDistance.toFixed(2)} pts)`,
+    `Multi-Session Target 1: 1:2.00 Risk-to-Reward (${tpDistance1.toFixed(2)} pts)`,
+    `Multi-Session Target 2: 1:3.50 Macro Extension (${tpDistance2.toFixed(2)} pts)`,
+    `Hold Horizon: 18h - 48h (Institutional Swing Position)`,
+  ];
 
   return {
     symbol,
@@ -360,14 +378,21 @@ export function runConfluenceScan(bundle: MarketDataBundle): ConfluenceSignal | 
     tpDistance: tpDistance1,
     confluenceScore: '3/3',
     scoreNumeric: 100,
+    tradeStyle: 'SWING_HOLD',
+    holdDuration: '18h - 48h (Swing Hold)',
+    htfConfluence: {
+      dailyBias: biasD1.explanation,
+      h4Structure: setup4h.explanation,
+      h1Trigger: trigger1h.explanation,
+    },
     timeframeStack: {
-      '4H': bias4h.direction,
-      '1H': setup1h.status,
-      '30M': trigger30m.status,
+      'D1': biasD1.direction,
+      '4H': setup4h.status,
+      '1H': trigger1h.status,
     },
     confluences,
     status: 'ACTIVE',
-    outcomeNotes: 'Freshly generated signal awaiting manual execution on MT5/Exness terminal.',
+    outcomeNotes: 'Institutional Swing Holding Signal. Calculated on D1/4H/1H structure for multi-session hold.',
     createdAt: new Date().toISOString(),
   };
 }

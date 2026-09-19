@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
           symbol: sym,
           signalFound: false,
           marketStatus: 'OPEN',
-          message: 'Zero-sleep engine analyzed 4H/1H/30M. No 3/3 setup triggered.',
+          message: 'TradingView & MT5 engine analyzed D1/4H/1H holding structure. No 3/3 swing setup triggered.',
         });
       }
     } catch (err: any) {

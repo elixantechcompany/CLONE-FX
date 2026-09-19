@@ -463,8 +463,9 @@ class MarketStructureAnalyzer:
             "key_zones": [],
         }
 
-        timeframes = ["D1", "H4", "H1", "M15", "M5"]
-        tf_weights = {"D1": 0.30, "H4": 0.25, "H1": 0.20, "M15": 0.15, "M5": 0.10}
+        # Focus exclusively on Higher Timeframes for institutional holding setups
+        timeframes = ["D1", "H4", "H1"]
+        tf_weights = {"D1": 0.45, "H4": 0.35, "H1": 0.20}
         composite_score = 0.0
 
         all_events = []
@@ -573,12 +574,12 @@ class MarketStructureAnalyzer:
         """
         is_gold = "XAU" in symbol.upper()
 
-        # 1. If BTCUSD (24/7 Crypto), fetch REAL LIVE M5/M15 CANDLES from Binance public API
+        # 1. If BTCUSD (24/7 Crypto), fetch REAL LIVE D1, H4, or H1 CANDLES from Binance public API
         if not is_gold:
             try:
                 import urllib.request
                 import json
-                interval = "5m" if "5" in timeframe_str else ("15m" if "15" in timeframe_str else ("1h" if "1H" in timeframe_str.upper() else "5m"))
+                interval = "1d" if "D" in timeframe_str.upper() else ("4h" if "H4" in timeframe_str.upper() else "1h")
                 url = f"https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval={interval}&limit={count}"
                 req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
                 with urllib.request.urlopen(req, timeout=3.5) as resp:
@@ -602,24 +603,48 @@ class MarketStructureAnalyzer:
             except Exception as e:
                 logger.debug(f"Live BTC klines fetch fallback notice: {e}")
 
-        # 2. Realistic market anchor based on REAL current chart levels (BTC ~81,015.75, Gold ~2,685.0)
-        base_price = 2685.0 if is_gold else 81015.75
-        volatility = 0.8 if is_gold else 45.0
+        # 2. If Gold, query TradingView real-time CFD scanner for live quote
+        live_gold_price = 2685.0
+        if is_gold:
+            try:
+                import urllib.request
+                import json
+                tv_req = urllib.request.Request(
+                    'https://scanner.tradingview.com/cfd/scan',
+                    data=json.dumps({
+                        'symbols': {'tickers': ['OANDA:XAUUSD']},
+                        'columns': ['close', 'open', 'high', 'low']
+                    }).encode('utf-8'),
+                    headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'}
+                )
+                with urllib.request.urlopen(tv_req, timeout=3.0) as resp:
+                    tv_data = json.loads(resp.read().decode('utf-8'))
+                    row = tv_data.get('data', [{}])[0].get('d', [])
+                    if row and len(row) > 0 and float(row[0]) > 0:
+                        live_gold_price = float(row[0])
+            except Exception as e:
+                logger.debug(f"TradingView Gold scanner fetch fallback notice: {e}")
 
-        times = [datetime.datetime.utcnow() - datetime.timedelta(minutes=i * 5) for i in range(count)]
+        # 3. Realistic Higher-Timeframe anchor (D1: 1440m, H4: 240m, H1: 60m)
+        base_price = live_gold_price if is_gold else 81090.0
+        tf_minutes = 1440 if "D" in timeframe_str.upper() else (240 if "H4" in timeframe_str.upper() else 60)
+        scale = 2.8 if "D" in timeframe_str.upper() else (1.8 if "H4" in timeframe_str.upper() else 1.0)
+        volatility = (3.2 if is_gold else 190.0) * scale
+
+        times = [datetime.datetime.utcnow() - datetime.timedelta(minutes=i * tf_minutes) for i in range(count)]
         times.reverse()
 
-        np.random.seed(int(time.time() // 60) + len(symbol))
-        noise = np.random.normal(0, volatility, count)
-        drift = np.linspace(-6, 8, count) if is_gold else np.linspace(-40, 60, count)
+        np.random.seed(int(time.time() // 120) + len(symbol))
+        noise = np.random.normal(0, volatility * 0.4, count)
+        drift = np.linspace(-12, 16, count) if is_gold else np.linspace(-150, 220, count)
         prices = base_price + drift + np.cumsum(noise)
 
         records = []
         for i in range(count):
             c_close = prices[i]
-            c_open = prices[i - 1] if i > 0 else c_close - 0.5
-            c_high = max(c_open, c_close) + abs(np.random.normal(0, volatility * 0.4))
-            c_low = min(c_open, c_close) - abs(np.random.normal(0, volatility * 0.4))
+            c_open = prices[i - 1] if i > 0 else c_close - (volatility * 0.2)
+            c_high = max(c_open, c_close) + abs(np.random.normal(0, volatility * 0.35))
+            c_low = min(c_open, c_close) - abs(np.random.normal(0, volatility * 0.35))
             records.append({
                 "time": int(times[i].timestamp()),
                 "datetime": times[i],
@@ -627,7 +652,7 @@ class MarketStructureAnalyzer:
                 "high": round(float(c_high), 2),
                 "low": round(float(c_low), 2),
                 "close": round(float(c_close), 2),
-                "tick_volume": int(np.random.randint(50, 400)),
+                "tick_volume": int(np.random.randint(200, 1500)),
             })
 
         return pd.DataFrame(records)

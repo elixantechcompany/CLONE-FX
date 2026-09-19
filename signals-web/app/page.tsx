@@ -223,10 +223,12 @@ export default function DashboardPage() {
             tpDistance: Number(s.tp_distance || 0),
             confluenceScore: s.conviction_score >= 80 ? '3/3' : '2/3',
             scoreNumeric: s.conviction_score || 80,
+            tradeStyle: 'SWING_HOLD',
+            holdDuration: '18h - 48h (Swing Hold)',
             timeframeStack: {
-              '4H': 'Macro Trend Aligned',
-              '1H': 'Liquidity Sweep Aligned',
-              '30M': 'Trigger Confirmed'
+              'D1': 'Macro Trend Aligned',
+              '4H': 'Swing Key Structure',
+              '1H': 'Reclaim Trigger Confirmed'
             },
             confluences: s.confluences || [],
             status: 'ACTIVE',
@@ -364,9 +366,10 @@ export default function DashboardPage() {
     const action = isBuy ? 'BUY' : 'SELL';
     const orderType = s.orderType || `${action} MARKET (or Limit on Retest)`;
     const limitLine = s.limitPrice ? `\nLIMIT RETEST: ${s.limitPrice.toFixed(2)}` : '';
+    const holdHorizon = s.holdDuration || '18h - 48h (Swing Hold)';
     
-    // Standard MT5 order parameter format
-    const text = `ORDER: ${action}\nSYMBOL: ${s.symbol}\nTYPE: ${orderType}\nENTRY: ${s.entryPrice.toFixed(2)}${limitLine}\nSTOP LOSS: ${s.stopLoss.toFixed(2)}\nTAKE PROFIT 1: ${s.takeProfit1.toFixed(2)}${s.takeProfit2 ? `\nTAKE PROFIT 2: ${s.takeProfit2.toFixed(2)}` : ''}\nR:R RATIO: 1:${s.riskReward.toFixed(2)}`;
+    // Standard MT5 order parameter format for Holding / Swing Trades
+    const text = `ORDER: ${action}\nSYMBOL: ${s.symbol}\nTYPE: ${orderType}\nSTYLE: SWING / HOLDING SETUP\nHOLD HORIZON: ${holdHorizon}\nTIMEFRAME: D1 / 4H / 1H\nENTRY: ${s.entryPrice.toFixed(2)}${limitLine}\nSTOP LOSS: ${s.stopLoss.toFixed(2)}\nTAKE PROFIT 1: ${s.takeProfit1.toFixed(2)}${s.takeProfit2 ? `\nTAKE PROFIT 2: ${s.takeProfit2.toFixed(2)}` : ''}\nR:R RATIO: 1:${s.riskReward.toFixed(2)}`;
     
     navigator.clipboard.writeText(text);
     showToast(`Copied MT5 Parameters: [${action}] ${s.symbol} @ ${s.entryPrice.toFixed(2)} (SL: ${s.stopLoss.toFixed(2)} | TP: ${s.takeProfit1.toFixed(2)})`);
@@ -1121,7 +1124,7 @@ export default function DashboardPage() {
                   Live Market Setups (Verified BUY / SELL Orders)
                 </h2>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  Scans 4H macro trend, 1H structure, and 30M entry triggers ahead of the charts.
+                  Institutional Higher-Timeframe Engine (D1 Macro Bias, 4H Swing Structure, and 1H Reclaim) powered by TradingView & MT5 live data.
                 </p>
               </div>
               <span className="badge badge-gold">{filteredSignals.length} Setups Active</span>
@@ -1141,7 +1144,7 @@ export default function DashboardPage() {
                   No Active Setups Right Now
                 </div>
                 <div style={{ fontSize: '12px', marginTop: '4px' }}>
-                  The zero-sleep engine is analyzing M5/M15/H1 charts. Zero dummy data is shown. Real setups appear here instantly.
+                  The institutional holding engine is analyzing D1, 4H, and 1H charts via TradingView & MT5 feeds. Zero scalp noise. Real swing setups appear here instantly.
                 </div>
               </div>
             ) : (
@@ -1160,10 +1163,10 @@ export default function DashboardPage() {
 
                   return (
                     <div key={sig.id} className={`card ${is3of3 ? 'card-gold-glow' : ''}`}>
-                      {/* Card Header with Unmistakable BUY / SELL Badge */}
+                      {/* Card Header with Unmistakable BUY / SELL Badge & Swing Tag */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                             <span style={{ fontSize: '22px', fontWeight: 800, fontFamily: 'var(--font-mono)' }}>
                               {sig.symbol}
                             </span>
@@ -1171,9 +1174,16 @@ export default function DashboardPage() {
                               {isBuy ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
                               {orderAction} ORDER
                             </span>
+                            <span className="badge" style={{ fontSize: '11px', background: 'rgba(245, 200, 66, 0.12)', color: 'var(--gold)', border: '1px solid rgba(245, 200, 66, 0.3)' }}>
+                              🛡️ SWING HOLD
+                            </span>
                           </div>
                           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
                             Order Type: <strong style={{ color: '#fff' }}>{orderAction} MARKET</strong> (or Limit on Retest{sig.limitPrice ? ` @ ${sig.limitPrice.toFixed(2)}` : ''})
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--gold)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span>⏱️ Hold Horizon:</span>
+                            <strong style={{ color: '#fff' }}>{sig.holdDuration || '18h - 48h (Swing Hold)'}</strong>
                           </div>
                         </div>
 
@@ -1187,7 +1197,7 @@ export default function DashboardPage() {
                             color: is3of3 ? '#000' : 'var(--text-muted)',
                           }}
                         >
-                          {sig.confluenceScore} ALIGNED
+                          {sig.confluenceScore} HTF ALIGNED
                         </div>
                       </div>
 

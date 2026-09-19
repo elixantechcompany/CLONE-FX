@@ -94,15 +94,15 @@ class DashboardExporter:
                 primary_sym = list(active_symbols.values())[0] if active_symbols else "XAUUSD"
 
             candles = []
-            m5_candles_by_symbol = {}
+            candles_by_symbol = {}
 
-            # 2. Fetch candles only if market is open or from fallback structure
+            # 2. Fetch Higher-Timeframe (H4) candles for holding trade analysis
             for sym_key, sym_val in active_symbols.items():
                 is_open = market_schedules.get(sym_key, {}).get("is_open", True)
                 sym_candles = []
 
                 if is_open and mt5 is not None:
-                    rates = mt5.copy_rates_from_pos(sym_val, mt5.TIMEFRAME_M5, 0, 90)
+                    rates = mt5.copy_rates_from_pos(sym_val, mt5.TIMEFRAME_H4, 0, 90)
                     if rates is not None and len(rates) > 0:
                         for r in rates:
                             sym_candles.append({
@@ -115,7 +115,7 @@ class DashboardExporter:
                             })
 
                 if not sym_candles:
-                    df_fallback = self.structure_analyzer._generate_fallback_rates(sym_val, "M5", count=90)
+                    df_fallback = self.structure_analyzer._generate_fallback_rates(sym_val, "H4", count=90)
                     for _, r in df_fallback.iterrows():
                         sym_candles.append({
                             "time": int(r["time"]),
@@ -126,9 +126,11 @@ class DashboardExporter:
                             "volume": int(r["tick_volume"]),
                         })
 
-                m5_candles_by_symbol[sym_key] = sym_candles
+                candles_by_symbol[sym_key] = sym_candles
                 if sym_val == primary_sym or sym_key == "XAUUSD":
                     candles = sym_candles
+
+            m5_candles_by_symbol = candles_by_symbol
 
             # 3. Format Open Positions
             pos_list = []

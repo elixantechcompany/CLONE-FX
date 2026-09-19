@@ -129,14 +129,13 @@ class PerfectSetupDetector:
         events = structure_data.get("active_events", [])
         is_gold = "XAU" in symbol.upper()
 
-        # Minimum SL and buffer parameters
-        min_sl_dist = 2.0 if is_gold else 150.0
-        default_atr_sl = 3.5 if is_gold else 280.0
+        # Minimum SL and buffer parameters for Higher Timeframe Swing Holding
+        min_sl_dist = 14.0 if is_gold else 850.0
+        default_atr_sl = 18.0 if is_gold else 1200.0
 
         # Scan recent structure events for sweeps & breaks
-        m5_events = [e for e in events if e.get("timeframe") in ("M5", "M15")]
         h1_pools = timeframes.get("H1", {}).get("liquidity_pools", {})
-        m15_phase = timeframes.get("M15", {}).get("phase", "")
+        h4_pools = timeframes.get("H4", {}).get("liquidity_pools", {})
         h1_trend = timeframes.get("H1", {}).get("trend", "")
         h4_trend = timeframes.get("H4", {}).get("trend", "")
         d1_trend = timeframes.get("D1", {}).get("trend", "")
@@ -206,16 +205,16 @@ class PerfectSetupDetector:
                 score += 5
                 confluences.append("Moderate Spread Penalty")
 
-            # Calculate Risk / Reward Levels
+            # Calculate Risk / Reward Levels for Holding Trades
             entry = cur_price
-            sl = round(sweep_price - (0.60 if is_gold else 40.0), 2)
+            sl = round(sweep_price - (2.50 if is_gold else 120.0), 2)
             sl_dist = round(abs(entry - sl), 2)
             if sl_dist < min_sl_dist:
                 sl = round(entry - default_atr_sl, 2)
                 sl_dist = round(abs(entry - sl), 2)
 
             tp1_dist = round(sl_dist * 2.0, 2)
-            tp2_dist = round(sl_dist * 3.2, 2)
+            tp2_dist = round(sl_dist * 3.5, 2)
             tp1 = round(entry + tp1_dist, 2)
             tp2 = round(entry + tp2_dist, 2)
             rr = round(tp1_dist / sl_dist, 2)
@@ -223,7 +222,7 @@ class PerfectSetupDetector:
             grade = "A+ PERFECT SETUP" if score >= self.min_score_perfect else ("GRADE A" if score >= self.min_score_grade_a else "GRADE B")
             setup_id = f"SETUP_BUY_{symbol}_{int(time.time())}"
 
-            limit_retest = round(sweep_price + (0.30 if is_gold else 15.0), 2)
+            limit_retest = round(sweep_price + (1.20 if is_gold else 60.0), 2)
             setup_dict = asdict(PerfectSetup(
                 id=setup_id,
                 symbol=symbol,
@@ -237,11 +236,11 @@ class PerfectSetupDetector:
                 risk_reward=rr,
                 sl_distance=sl_dist,
                 tp_distance=tp1_dist,
-                timeframe="M5/M15",
+                timeframe="D1/H4/H1",
                 status="ACTIVE_READY" if has_break_confirm else "FORMING",
                 invalidation_level=sl,
                 confluences=confluences,
-                setup_summary=f"[BUY {grade}] Swept SSL at {sweep_price:.2f} -> Target 1:2.0 R:R at {tp1:.2f} (SL: {sl:.2f})",
+                setup_summary=f"[BUY {grade} SWING HOLD] Swept SSL at {sweep_price:.2f} -> Target 1:2.0 R:R at {tp1:.2f} (SL: {sl:.2f}, Hold: 18h-48h)",
                 formed_time=datetime.datetime.utcnow().strftime("%H:%M:%S UTC"),
                 timestamp=int(time.time()),
                 order_type="BUY MARKET (or Limit on Retest)",
@@ -317,14 +316,14 @@ class PerfectSetupDetector:
                 confluences.append("Moderate Spread Penalty")
 
             entry = cur_price
-            sl = round(sweep_price + (0.60 if is_gold else 40.0), 2)
+            sl = round(sweep_price + (2.50 if is_gold else 120.0), 2)
             sl_dist = round(abs(sl - entry), 2)
             if sl_dist < min_sl_dist:
                 sl = round(entry + default_atr_sl, 2)
                 sl_dist = round(abs(sl - entry), 2)
 
             tp1_dist = round(sl_dist * 2.0, 2)
-            tp2_dist = round(sl_dist * 3.2, 2)
+            tp2_dist = round(sl_dist * 3.5, 2)
             tp1 = round(entry - tp1_dist, 2)
             tp2 = round(entry - tp2_dist, 2)
             rr = round(tp1_dist / sl_dist, 2)
@@ -332,7 +331,7 @@ class PerfectSetupDetector:
             grade = "A+ PERFECT SETUP" if score >= self.min_score_perfect else ("GRADE A" if score >= self.min_score_grade_a else "GRADE B")
             setup_id = f"SETUP_SELL_{symbol}_{int(time.time())}"
 
-            limit_retest = round(sweep_price - (0.30 if is_gold else 15.0), 2)
+            limit_retest = round(sweep_price - (1.20 if is_gold else 60.0), 2)
             setup_dict = asdict(PerfectSetup(
                 id=setup_id,
                 symbol=symbol,
@@ -346,11 +345,11 @@ class PerfectSetupDetector:
                 risk_reward=rr,
                 sl_distance=sl_dist,
                 tp_distance=tp1_dist,
-                timeframe="M5/M15",
+                timeframe="D1/H4/H1",
                 status="ACTIVE_READY" if has_break_confirm else "FORMING",
                 invalidation_level=sl,
                 confluences=confluences,
-                setup_summary=f"[SELL {grade}] Swept BSL at {sweep_price:.2f} -> Target 1:2.0 R:R at {tp1:.2f} (SL: {sl:.2f})",
+                setup_summary=f"[SELL {grade} SWING HOLD] Swept BSL at {sweep_price:.2f} -> Target 1:2.0 R:R at {tp1:.2f} (SL: {sl:.2f}, Hold: 18h-48h)",
                 formed_time=datetime.datetime.utcnow().strftime("%H:%M:%S UTC"),
                 timestamp=int(time.time()),
                 order_type="SELL MARKET (or Limit on Retest)",
@@ -388,20 +387,21 @@ class PerfectSetupDetector:
                         "risk_reward": 2.1,
                         "sl_distance": sl_dist,
                         "tp_distance": round(sl_dist * 2.1, 2),
-                        "timeframe": "M15",
+                        "timeframe": "D1/H4/H1",
                         "status": "ACTIVE_READY",
                         "invalidation_level": sl,
                         "confluences": [
                             f"Macro Trend Bullish ({macro_bias})",
-                            "Pullback to M15 Break of Structure (BOS) Level",
+                            "Pullback to 4H Break of Structure (BOS) Level",
                             "EMA20 Above EMA50 Bullish Alignment",
                             "Targeting 1:2.1+ Risk-to-Reward Ratio",
+                            "Hold Horizon: 18h - 48h (Swing Hold)",
                         ],
-                        "setup_summary": f"[BUY Continuation] Retest after Bullish BOS -> Target {tp1:.2f} (SL: {sl:.2f})",
+                        "setup_summary": f"[BUY Continuation SWING HOLD] Retest after Bullish BOS -> Target {tp1:.2f} (SL: {sl:.2f})",
                         "formed_time": datetime.datetime.utcnow().strftime("%H:%M:%S UTC"),
                         "timestamp": int(time.time()),
                         "order_type": "BUY MARKET (or Limit on Retest)",
-                        "limit_price": round(entry - 15.0, 2),
+                        "limit_price": round(entry - (15.0 if is_gold else 100.0), 2),
                     })
 
             elif "BEARISH" in macro_bias and cur_price > 0:
@@ -425,20 +425,21 @@ class PerfectSetupDetector:
                         "risk_reward": 2.1,
                         "sl_distance": sl_dist,
                         "tp_distance": round(sl_dist * 2.1, 2),
-                        "timeframe": "M15",
+                        "timeframe": "D1/H4/H1",
                         "status": "ACTIVE_READY",
                         "invalidation_level": sl,
                         "confluences": [
                             f"Macro Trend Bearish ({macro_bias})",
-                            "Pullback to M15 Break of Structure (BOS) Level",
+                            "Pullback to 4H Break of Structure (BOS) Level",
                             "EMA20 Below EMA50 Bearish Alignment",
                             "Targeting 1:2.1+ Risk-to-Reward Ratio",
+                            "Hold Horizon: 18h - 48h (Swing Hold)",
                         ],
-                        "setup_summary": f"[SELL Continuation] Retest after Bearish BOS -> Target {tp1:.2f} (SL: {sl:.2f})",
+                        "setup_summary": f"[SELL Continuation SWING HOLD] Retest after Bearish BOS -> Target {tp1:.2f} (SL: {sl:.2f})",
                         "formed_time": datetime.datetime.utcnow().strftime("%H:%M:%S UTC"),
                         "timestamp": int(time.time()),
                         "order_type": "SELL MARKET (or Limit on Retest)",
-                        "limit_price": round(entry + 15.0, 2),
+                        "limit_price": round(entry + (15.0 if is_gold else 100.0), 2),
                     })
 
         # Update historical archive

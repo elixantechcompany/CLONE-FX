@@ -7,7 +7,7 @@ export interface Candle {
   volume?: number;
 }
 
-export type Timeframe = '30m' | '1h' | '4h';
+export type Timeframe = '1d' | '4h' | '1h' | '30m';
 
 export type BiasDirection = 'LONG_BIAS' | 'SHORT_BIAS' | 'NO_BIAS';
 
@@ -59,10 +59,18 @@ export interface ConfluenceSignal {
   tpDistance: number;
   confluenceScore: string;
   scoreNumeric?: number;
+  tradeStyle?: 'SWING_HOLD' | 'INTRADAY';
+  holdDuration?: string; // e.g. "12h - 48h (Swing)"
+  htfConfluence?: {
+    dailyBias: string;
+    h4Structure: string;
+    h1Trigger: string;
+  };
   timeframeStack?: {
+    'D1'?: string;
     '4H': string;
     '1H': string;
-    '30M': string;
+    '30M'?: string;
   };
   confluences: string[];
   status: 'ACTIVE' | 'EXPIRED' | 'HIT_TP' | 'HIT_SL' | 'NOT_TAKEN' | 'ACTIVE_READY' | 'FORMING';
@@ -186,8 +194,9 @@ export type MT5AccountType = 'REAL' | 'DEMO' | string;
 export interface MarketDataBundle {
   symbol: 'XAUUSD' | 'BTCUSD';
   timeframes: {
+    '1d'?: Candle[];
     '4h': Candle[];
     '1h': Candle[];
-    '30m': Candle[];
+    '30m'?: Candle[];
   };
 }
