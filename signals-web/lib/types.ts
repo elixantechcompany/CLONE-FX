@@ -95,11 +95,13 @@ export interface JournalEntry {
 }
 
 export interface UserProfile {
+  id?: string;
   name: string;
   email: string;
-  accountType: 'PERSONAL' | 'PROP_FIRM' | 'CENT_ACCOUNT' | 'PRO_INSTITUTIONAL';
+  accountType: 'PERSONAL' | 'PROP_FIRM' | 'CENT_ACCOUNT' | 'PRO_INSTITUTIONAL' | 'STANDARD_USD' | 'CENT_USC' | 'RAW_SPREAD' | 'DEMO' | string;
   isLoggedIn: boolean;
   avatarUrl?: string;
+  token?: string;
 }
 
 export interface MarketSchedule {

@@ -29,11 +29,56 @@ personal_account:
 accounts:
   enabled: true
   multi_account_mode: true
-  account_list: []
+  account_list:
+  - id: account_a
+    name: Test Personal Account
+    type: PERSONAL
+    balance: 25.0
+    mode: INDEPENDENT
+    execution_mode: AUTOMATED_EA
+    copy_enabled: false
+    max_daily_loss_pct: 10.0
+    risk_per_trade_pct: 1.0
+    min_rr: 2.0
+    env_login_var: ACCOUNT_A_LOGIN
+    env_password_var: ACCOUNT_A_PASSWORD
+    env_server_var: ACCOUNT_A_SERVER
+    env_path_var: ACCOUNT_A_MT5_PATH
+    is_active: true
+  - id: account_b
+    name: 'Exness Standard Live #1'
+    type: STANDARD_USD
+    balance: 50.0
+    mode: INDEPENDENT
+    execution_mode: AUTOMATED_EA
+    copy_enabled: false
+    max_daily_loss_pct: 10.0
+    risk_per_trade_pct: 1.0
+    min_rr: 2.0
+    env_login_var: ACCOUNT_B_LOGIN
+    env_password_var: ACCOUNT_B_PASSWORD
+    env_server_var: ACCOUNT_B_SERVER
+    env_path_var: ACCOUNT_B_MT5_PATH
+    is_active: true
+  - id: account_c
+    name: Exness Cent Account 01
+    type: CENT_USC
+    balance: 20.0
+    mode: INDEPENDENT
+    execution_mode: AUTOMATED_EA
+    copy_enabled: false
+    max_daily_loss_pct: 10.0
+    risk_per_trade_pct: 1.0
+    min_rr: 2.0
+    env_login_var: ACCOUNT_C_LOGIN
+    env_password_var: ACCOUNT_C_PASSWORD
+    env_server_var: ACCOUNT_C_SERVER
+    env_path_var: ACCOUNT_C_MT5_PATH
+    is_active: true
 copy_engine:
   enabled: false
-  master_account_id: ""
-  follower_account_id: ""
+  master_account_id: ''
+  follower_account_id: ''
   max_follower_risk_dollars: 0.5
   hard_reject_risk_dollars: 1.0
   max_spread_points_gold: 320

@@ -56,17 +56,21 @@ export default function DashboardPage() {
   // Navigation tabs
   const [activeTab, setActiveTab] = useState<'SIGNALS' | 'LIVE_TRADES' | 'JOURNAL' | 'ACCOUNTS' | 'CALCULATOR'>('SIGNALS');
 
-  // User Profile & Authentication State
+  // User Profile & Real Supabase Authentication State
   const [user, setUser] = useState<UserProfile>({
-    name: 'Hannington',
-    email: 'trader@goldclone.com',
-    accountType: 'PERSONAL',
-    isLoggedIn: true,
+    name: 'Guest Trader',
+    email: '',
+    accountType: 'STANDARD_USD',
+    isLoggedIn: false,
   });
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+  const [authMode, setAuthMode] = useState<'LOGIN' | 'SIGNUP'>('LOGIN');
   const [authEmail, setAuthEmail] = useState<string>('');
+  const [authPassword, setAuthPassword] = useState<string>('');
   const [authName, setAuthName] = useState<string>('');
-  const [authType, setAuthType] = useState<'PERSONAL' | 'PROP_FIRM' | 'CENT_ACCOUNT'>('PERSONAL');
+  const [authType, setAuthType] = useState<string>('STANDARD_USD');
+  const [authLoading, setAuthLoading] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // Scanner & Live Data (0 Dummy Data)
   const [signals, setSignals] = useState<ConfluenceSignal[]>([]);
@@ -113,10 +117,10 @@ export default function DashboardPage() {
   const [calcSymbol, setCalcSymbol] = useState<string>('BTCUSD');
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
-  // Add Account Modal State
+  // Add Account Modal State (5 Rich MT5 Types, $20 Min)
   const [showAddAccountModal, setShowAddAccountModal] = useState<boolean>(false);
   const [newAccName, setNewAccName] = useState<string>('');
-  const [newAccType, setNewAccType] = useState<string>('PERSONAL');
+  const [newAccType, setNewAccType] = useState<string>('STANDARD_USD');
   const [newAccBalance, setNewAccBalance] = useState<number>(20);
   const [newAccLogin, setNewAccLogin] = useState<string>('');
   const [newAccPassword, setNewAccPassword] = useState<string>('');
@@ -252,6 +256,30 @@ export default function DashboardPage() {
     }
   };
 
+  // Restore persisted auth session from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('gold_trader_session');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && parsed.email) {
+          setUser({
+            id: parsed.id,
+            name: parsed.name || parsed.email.split('@')[0],
+            email: parsed.email,
+            accountType: parsed.accountType || 'STANDARD_USD',
+            isLoggedIn: true,
+            token: parsed.token,
+          });
+          setAuthEmail(parsed.email);
+          setAuthName(parsed.name || '');
+        }
+      }
+    } catch (e) {
+      console.warn('Could not restore auth session:', e);
+    }
+  }, []);
+
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 5000);
@@ -363,12 +391,128 @@ export default function DashboardPage() {
     }
   };
 
-  // Add Real Account ($20 Min)
+  // Real Supabase Authentication Submit (Sign Up & Log In)
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setAuthLoading(true);
+
+    try {
+      if (authMode === 'SIGNUP') {
+        if (!authEmail.trim() || !authPassword) {
+          setAuthError('Email and password are required.');
+          setAuthLoading(false);
+          return;
+        }
+        if (authPassword.length < 6) {
+          setAuthError('Password must be at least 6 characters.');
+          setAuthLoading(false);
+          return;
+        }
+
+        const res = await fetch('/api/auth/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: authEmail.trim(),
+            password: authPassword,
+            name: authName.trim() || authEmail.split('@')[0],
+            account_type: authType,
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          setAuthError(data.error || 'Registration failed. Please try again.');
+          return;
+        }
+
+        const signedUser: UserProfile = {
+          id: data.user?.id,
+          name: data.user?.name || authName.trim() || authEmail.split('@')[0],
+          email: data.user?.email || authEmail.trim(),
+          accountType: data.user?.accountType || authType,
+          isLoggedIn: true,
+          token: data.token,
+        };
+
+        setUser(signedUser);
+        localStorage.setItem('gold_trader_session', JSON.stringify(signedUser));
+        showToast(`Account registered! Welcome, ${signedUser.name}`);
+        setShowAuthModal(false);
+        setAuthPassword('');
+      } else {
+        // LOGIN
+        if (!authEmail.trim() || !authPassword) {
+          setAuthError('Email and password are required.');
+          setAuthLoading(false);
+          return;
+        }
+
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: authEmail.trim(),
+            password: authPassword,
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          setAuthError(data.error || 'Invalid email or password.');
+          return;
+        }
+
+        const loggedUser: UserProfile = {
+          id: data.user?.id,
+          name: data.user?.name || authEmail.split('@')[0],
+          email: data.user?.email || authEmail.trim(),
+          accountType: data.user?.accountType || 'STANDARD_USD',
+          isLoggedIn: true,
+          token: data.token,
+        };
+
+        setUser(loggedUser);
+        localStorage.setItem('gold_trader_session', JSON.stringify(loggedUser));
+        showToast(`Signed in successfully as ${loggedUser.name}!`);
+        setShowAuthModal(false);
+        setAuthPassword('');
+      }
+    } catch (err: any) {
+      setAuthError(
+        err.message === 'Failed to fetch'
+          ? 'Network error: Cannot reach the authentication server. Please check that the server is online.'
+          : (err.message || 'Authentication request failed')
+      );
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  // Logout Handler
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    } finally {
+      localStorage.removeItem('gold_trader_session');
+      setUser({
+        name: 'Guest Trader',
+        email: '',
+        accountType: 'STANDARD_USD',
+        isLoggedIn: false,
+      });
+      showToast('Logged out of trading terminal.');
+    }
+  };
+
+  // Add Real Account ($20 Min) with Robust Connectivity
   const handleAddAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     setAddAccountError(null);
 
-    if (newAccBalance < 20) {
+    const bal = Number(newAccBalance);
+    if (isNaN(bal) || bal < 20) {
       setAddAccountError('Minimum initial balance must be at least $20.00 USD.');
       return;
     }
@@ -384,33 +528,44 @@ export default function DashboardPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: newAccName || `Account ${newAccLogin}`,
+          name: newAccName ? newAccName.trim() : `MT5 ${newAccLogin.trim()}`,
           account_type: newAccType,
-          balance: newAccBalance,
-          login: newAccLogin,
-          password: newAccPassword,
-          server: newAccServer,
+          balance: bal,
+          login: String(newAccLogin).trim(),
+          password: String(newAccPassword || '').trim(),
+          server: String(newAccServer).trim(),
           execution_mode: newAccMode,
           mode: 'INDEPENDENT'
         }),
       });
 
-      const data = await res.json();
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch (e) {
+        throw new Error('Server returned an invalid response');
+      }
+
       if (!res.ok || data.error) {
-        setAddAccountError(data.error || 'Failed to add account');
+        setAddAccountError(data.error || 'Failed to connect trading account');
         return;
       }
 
-      showToast(`Account ${newAccLogin} added successfully! ($${newAccBalance})`);
+      showToast(`Account ${newAccLogin} (${newAccType}) connected! ($${bal.toFixed(2)})`);
       setShowAddAccountModal(false);
       setNewAccName('');
       setNewAccLogin('');
       setNewAccPassword('');
       setNewAccServer('');
       setNewAccBalance(20);
+      setNewAccType('STANDARD_USD');
       await fetchData();
     } catch (err: any) {
-      setAddAccountError(err.message || 'Network error while adding account');
+      console.error('Account connection failed:', err);
+      const msg = err.message === 'Failed to fetch'
+        ? 'Could not connect to the trading backend server. Please verify Next.js is running on http://localhost:3000 and try again.'
+        : (err.message || 'Network error while connecting account');
+      setAddAccountError(msg);
     } finally {
       setAddingAccount(false);
     }
@@ -509,28 +664,57 @@ export default function DashboardPage() {
         </div>
 
         <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          {/* User Profile Badge */}
-          <div
-            onClick={() => setShowAuthModal(true)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '6px 14px',
-              borderRadius: '100px',
-              background: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid var(--border-subtle)',
-              cursor: 'pointer',
-              fontSize: '12px',
-              fontWeight: 700,
-            }}
-          >
-            <User size={14} className="gold" />
-            <span>{user.name}</span>
-            <span className="badge badge-gold" style={{ fontSize: '9px', padding: '2px 6px' }}>
-              {user.accountType}
-            </span>
-          </div>
+          {/* User Profile Badge & Real Authentication Action */}
+          {user.isLoggedIn ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div
+                onClick={() => {
+                  setAuthMode('LOGIN');
+                  setShowAuthModal(true);
+                }}
+                title="Click to view profile or switch account"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '6px 14px',
+                  borderRadius: '100px',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid var(--border-subtle)',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                }}
+              >
+                <User size={14} className="gold" />
+                <span>{user.name}</span>
+                <span className="badge badge-gold" style={{ fontSize: '9px', padding: '2px 6px' }}>
+                  {user.accountType}
+                </span>
+              </div>
+              <button
+                onClick={handleLogout}
+                title="Log out"
+                className="btn"
+                style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--rose)', display: 'flex', alignItems: 'center', gap: '4px' }}
+              >
+                <LogOut size={12} />
+                <span>Logout</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                setAuthMode('LOGIN');
+                setShowAuthModal(true);
+              }}
+              style={{ fontSize: '12px', padding: '7px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <LogIn size={14} />
+              <span>Sign In / Sign Up</span>
+            </button>
+          )}
 
           <button
             className="btn"
@@ -1762,57 +1946,95 @@ export default function DashboardPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL: USER PROFILE & SIGN UP / LOGIN                                     */}
+      {/* MODAL: USER PROFILE & REAL SUPABASE AUTHENTICATION (SIGN UP / SIGN IN)      */}
       {/* ========================================================================= */}
       {showAuthModal && (
         <div className="modal-overlay" onClick={() => setShowAuthModal(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <UserCheck size={20} className="gold" />
-                <h3 style={{ fontSize: '17px', fontWeight: 800 }}>Trader Profile & Sign-Up</h3>
+                <h3 style={{ fontSize: '17px', fontWeight: 800 }}>
+                  {authMode === 'SIGNUP' ? 'Create Trader Account' : 'Trader Sign In'}
+                </h3>
               </div>
-              <button onClick={() => setShowAuthModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+              <button
+                onClick={() => {
+                  setShowAuthModal(false);
+                  setAuthError(null);
+                }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+              >
                 <X size={18} />
               </button>
             </div>
 
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>
-              Sign up or switch your trader profile to personalize your manual trade journals, alerts, and connected broker accounts.
-            </p>
+            {/* Auth Mode Toggle Tabs */}
+            <div style={{ display: 'flex', gap: '6px', background: 'rgba(255,255,255,0.03)', padding: '4px', borderRadius: '10px', marginBottom: '16px' }}>
+              <button
+                type="button"
+                className={`btn ${authMode === 'LOGIN' ? 'btn-active' : ''}`}
+                style={{ flex: 1, padding: '8px 12px', fontSize: '12px', fontWeight: 700 }}
+                onClick={() => {
+                  setAuthMode('LOGIN');
+                  setAuthError(null);
+                }}
+              >
+                <LogIn size={13} style={{ marginRight: '6px', display: 'inline-block', verticalAlign: '-2px' }} />
+                Sign In
+              </button>
+              <button
+                type="button"
+                className={`btn ${authMode === 'SIGNUP' ? 'btn-active' : ''}`}
+                style={{ flex: 1, padding: '8px 12px', fontSize: '12px', fontWeight: 700 }}
+                onClick={() => {
+                  setAuthMode('SIGNUP');
+                  setAuthError(null);
+                }}
+              >
+                <Sparkles size={13} style={{ marginRight: '6px', display: 'inline-block', verticalAlign: '-2px' }} />
+                Sign Up
+              </button>
+            </div>
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                setUser({
-                  name: authName || user.name,
-                  email: authEmail || user.email,
-                  accountType: authType,
-                  isLoggedIn: true,
-                });
-                showToast(`Profile updated: ${authName || user.name} (${authType})`);
-                setShowAuthModal(false);
-              }}
-              style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
-            >
-              <div>
-                <label style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>TRADER NAME</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Hannington"
-                  defaultValue={user.name}
-                  onChange={(e) => setAuthName(e.target.value)}
-                  style={{ width: '100%', marginTop: '4px', padding: '9px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-subtle)', borderRadius: '8px', color: '#fff' }}
-                  required
-                />
+            {authError && (
+              <div
+                style={{
+                  background: 'var(--rose-bg)',
+                  border: '1px solid var(--border-rose)',
+                  padding: '10px 14px',
+                  borderRadius: '10px',
+                  color: 'var(--rose)',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  marginBottom: '14px',
+                }}
+              >
+                ⚠️ {authError}
               </div>
+            )}
+
+            <form onSubmit={handleAuthSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {authMode === 'SIGNUP' && (
+                <div>
+                  <label style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>TRADER NAME / HANDLE</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Hannington"
+                    value={authName}
+                    onChange={(e) => setAuthName(e.target.value)}
+                    style={{ width: '100%', marginTop: '4px', padding: '9px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-subtle)', borderRadius: '8px', color: '#fff' }}
+                    required
+                  />
+                </div>
+              )}
 
               <div>
                 <label style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>EMAIL ADDRESS</label>
                 <input
                   type="email"
                   placeholder="e.g. trader@goldclone.com"
-                  defaultValue={user.email}
+                  value={authEmail}
                   onChange={(e) => setAuthEmail(e.target.value)}
                   style={{ width: '100%', marginTop: '4px', padding: '9px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-subtle)', borderRadius: '8px', color: '#fff' }}
                   required
@@ -1820,24 +2042,49 @@ export default function DashboardPage() {
               </div>
 
               <div>
-                <label style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>TRADING ACCOUNT CATEGORY</label>
-                <select
-                  value={authType}
-                  onChange={(e) => setAuthType(e.target.value as any)}
-                  style={{ width: '100%', marginTop: '4px', padding: '9px 12px', background: '#161a26', border: '1px solid var(--border-subtle)', borderRadius: '8px', color: '#fff' }}
-                >
-                  <option value="PERSONAL">Personal Broker (Exness, XM, HF Markets, IC)</option>
-                  <option value="PROP_FIRM">Prop Firm Challenge (FTMO, BrightFunded, FundedNext)</option>
-                  <option value="CENT_ACCOUNT">Micro / Cent Account ($20 minimum)</option>
-                </select>
+                <label style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>PASSWORD (MIN 6 CHARS)</label>
+                <input
+                  type="password"
+                  placeholder="••••••••"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  style={{ width: '100%', marginTop: '4px', padding: '9px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-subtle)', borderRadius: '8px', color: '#fff' }}
+                  required
+                />
               </div>
 
+              {authMode === 'SIGNUP' && (
+                <div>
+                  <label style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>PRIMARY TRADING FOCUS</label>
+                  <select
+                    value={authType}
+                    onChange={(e) => setAuthType(e.target.value)}
+                    style={{ width: '100%', marginTop: '4px', padding: '9px 12px', background: '#161a26', border: '1px solid var(--border-subtle)', borderRadius: '8px', color: '#fff', fontSize: '13px' }}
+                  >
+                    <option value="STANDARD_USD">Standard Personal Broker (Exness, XM, HFM)</option>
+                    <option value="PROP_FIRM">Prop Firm Challenge (FTMO, BrightFunded, FundedNext)</option>
+                    <option value="CENT_USC">Micro / Cent Account ($20 Minimum)</option>
+                    <option value="RAW_SPREAD">Raw Spread / Zero ECN</option>
+                  </select>
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
-                <button type="button" className="btn" style={{ flex: 1 }} onClick={() => setShowAuthModal(false)}>
+                <button
+                  type="button"
+                  className="btn"
+                  style={{ flex: 1 }}
+                  onClick={() => {
+                    setShowAuthModal(false);
+                    setAuthError(null);
+                  }}
+                >
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary" style={{ flex: 2 }}>
-                  Save & Update Profile
+                <button type="submit" className="btn btn-primary" style={{ flex: 2 }} disabled={authLoading}>
+                  {authLoading
+                    ? 'Authenticating...'
+                    : (authMode === 'SIGNUP' ? 'Create Account & Sign In' : 'Sign In to Terminal')}
                 </button>
               </div>
             </form>
@@ -1846,18 +2093,21 @@ export default function DashboardPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL: ADD REAL MT5 TRADING ACCOUNT ($20 USD MINIMUM INITIAL BALANCE)      */}
+      {/* MODAL: ADD REAL MT5 TRADING ACCOUNT (5 ACCOUNT TYPES, $20 MINIMUM)         */}
       {/* ========================================================================= */}
       {showAddAccountModal && (
         <div className="modal-overlay" onClick={() => setShowAddAccountModal(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Wallet size={20} className="gold" />
                 <h3 style={{ fontSize: '17px', fontWeight: 800 }}>Add Real MT5 Trading Account</h3>
               </div>
               <button
-                onClick={() => setShowAddAccountModal(false)}
+                onClick={() => {
+                  setShowAddAccountModal(false);
+                  setAddAccountError(null);
+                }}
                 style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
               >
                 <X size={18} />
@@ -1875,6 +2125,7 @@ export default function DashboardPage() {
                   fontSize: '12px',
                   fontWeight: 600,
                   marginBottom: '14px',
+                  lineHeight: '1.4',
                 }}
               >
                 ⚠️ {addAccountError}
@@ -1888,7 +2139,7 @@ export default function DashboardPage() {
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Exness Real Micro #1"
+                  placeholder="e.g. Exness Real Standard #1"
                   value={newAccName}
                   onChange={(e) => setNewAccName(e.target.value)}
                   style={{ width: '100%', marginTop: '4px', padding: '9px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-subtle)', borderRadius: '8px', color: '#fff', fontSize: '13px' }}
@@ -1920,12 +2171,41 @@ export default function DashboardPage() {
                     onChange={(e) => setNewAccType(e.target.value)}
                     style={{ width: '100%', marginTop: '4px', padding: '9px 12px', background: '#161a26', border: '1px solid var(--border-subtle)', borderRadius: '8px', color: '#fff', fontSize: '13px' }}
                   >
-                    <option value="PERSONAL">Personal Broker</option>
-                    <option value="PROP_FIRM">Prop Firm Challenge</option>
-                    <option value="CENT_ACCOUNT">Cent Account</option>
+                    <option value="STANDARD_USD">Standard (USD) - 1.0 Lot = 100k</option>
+                    <option value="CENT_USC">Cent / Micro (USC) - $20 = 2,000 Cents</option>
+                    <option value="PROP_FIRM">Prop Firm Challenge (4% Max DD)</option>
+                    <option value="RAW_SPREAD">Raw Spread / Zero ECN (0.0 Pip)</option>
+                    <option value="DEMO">Demo / Paper Trading</option>
                   </select>
                 </div>
               </div>
+
+              {/* Dynamic Account Type Explanation Banner */}
+              {newAccType === 'CENT_USC' && (
+                <div style={{ background: 'rgba(245, 200, 66, 0.08)', border: '1px solid rgba(245, 200, 66, 0.25)', padding: '8px 12px', borderRadius: '8px', fontSize: '11px', color: 'var(--gold-primary)' }}>
+                  💡 <strong>Cent Account Selected:</strong> Deposits are denominated in cents ($20.00 = 2,000 USC). Allows safe 0.01 lot position sizing with micro risk per trade.
+                </div>
+              )}
+              {newAccType === 'PROP_FIRM' && (
+                <div style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)', padding: '8px 12px', borderRadius: '8px', fontSize: '11px', color: '#60a5fa' }}>
+                  🛡️ <strong>Prop Firm Challenge Rules:</strong> Enforces 4.0% maximum daily drawdown ceiling and requires minimum 1:2.0 risk-to-reward ratio before trade triggers.
+                </div>
+              )}
+              {newAccType === 'STANDARD_USD' && (
+                <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', padding: '8px 12px', borderRadius: '8px', fontSize: '11px', color: 'var(--emerald)' }}>
+                  📈 <strong>Standard USD Broker Account:</strong> Suitable for standard accounts on Exness, XM, HF Markets, IC Markets. Min $20.00 initial balance.
+                </div>
+              )}
+              {newAccType === 'RAW_SPREAD' && (
+                <div style={{ background: 'rgba(168, 85, 247, 0.08)', border: '1px solid rgba(168, 85, 247, 0.25)', padding: '8px 12px', borderRadius: '8px', fontSize: '11px', color: '#c084fc' }}>
+                  ⚡ <strong>Raw Spread / Zero ECN:</strong> Direct raw spreads with commission, optimal for scalping and algorithmic order blocks.
+                </div>
+              )}
+              {newAccType === 'DEMO' && (
+                <div style={{ background: 'rgba(255, 255, 255, 0.05)', border: '1px solid var(--border-subtle)', padding: '8px 12px', borderRadius: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                  🧪 <strong>Demo Environment:</strong> Safe paper trading for algorithmic testing, forward testing setups, and strategy calibration.
+                </div>
+              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div>
@@ -1986,7 +2266,15 @@ export default function DashboardPage() {
               </div>
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '14px' }}>
-                <button type="button" className="btn" style={{ flex: 1 }} onClick={() => setShowAddAccountModal(false)}>
+                <button
+                  type="button"
+                  className="btn"
+                  style={{ flex: 1 }}
+                  onClick={() => {
+                    setShowAddAccountModal(false);
+                    setAddAccountError(null);
+                  }}
+                >
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary" style={{ flex: 2 }} disabled={addingAccount}>

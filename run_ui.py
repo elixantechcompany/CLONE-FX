@@ -72,7 +72,7 @@ class DashboardHTTPRequestHandler(SimpleHTTPRequestHandler):
         except Exception:
             body = {}
 
-        if self.path == "/api/accounts/add":
+        if self.path in ["/api/accounts/add", "/api/accounts"]:
             try:
                 name = body.get("name", "New Account")
                 acc_type = body.get("account_type", "PERSONAL")

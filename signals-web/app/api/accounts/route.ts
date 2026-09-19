@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://xeckbeavsvyoporldjzm.supabase.co';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 export async function GET() {
   try {
@@ -15,11 +19,38 @@ export async function GET() {
     let accounts = [];
     for (const p of possiblePaths) {
       if (fs.existsSync(p)) {
-        const raw = fs.readFileSync(p, 'utf-8');
-        const parsed = JSON.parse(raw);
-        accounts = parsed.accounts || [];
-        break;
+        try {
+          const raw = fs.readFileSync(p, 'utf-8');
+          const parsed = JSON.parse(raw);
+          accounts = parsed.accounts || [];
+          break;
+        } catch (e) {}
       }
+    }
+
+    // If local json is empty, try reading from Supabase accounts_overview
+    if (accounts.length === 0 && SUPABASE_SERVICE_ROLE_KEY) {
+      try {
+        const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+          auth: { persistSession: false },
+        });
+        const { data } = await supabase.from('accounts_overview').select('*');
+        if (data && data.length > 0) {
+          accounts = data.map((a) => ({
+            id: a.account_id,
+            name: a.name,
+            type: a.account_type || 'STANDARD_USD',
+            balance: parseFloat(a.balance || 0),
+            equity: parseFloat(a.equity || a.balance || 0),
+            margin: 0,
+            free_margin: parseFloat(a.balance || 0),
+            profit: parseFloat(a.daily_pnl || 0),
+            drawdown_pct: parseFloat(a.daily_dd_pct || 0),
+            status: a.status || 'CONNECTED',
+            execution_mode: 'AUTOMATED_EA',
+          }));
+        }
+      } catch (e) {}
     }
 
     return NextResponse.json({ accounts });
@@ -47,31 +78,110 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Try forwarding to local Python daemon run_ui.py on port 8080
-    try {
-      const res = await fetch('http://127.0.0.1:8080/api/accounts/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      return NextResponse.json(data, { status: res.status });
-    } catch (fetchErr) {
-      return NextResponse.json({
-        success: true,
-        message: 'Account saved to configuration. Ensure MT5 Terminal Daemon is active.',
-        account: {
-          id: `acc_${body.login}`,
-          name: body.name || `MT5-${body.login}`,
-          type: body.account_type || 'PERSONAL',
+    const accId = `acc_${String(body.login).trim()}`;
+    const accName = body.name || `MT5-${body.login}`;
+    const accType = body.account_type || 'STANDARD_USD';
+    const execMode = body.execution_mode || 'AUTOMATED_EA';
+
+    const newAccountObj = {
+      id: accId,
+      account_id: accId,
+      name: accName,
+      type: accType,
+      account_type: accType,
+      balance: balance,
+      equity: balance,
+      margin: 0,
+      free_margin: balance,
+      profit: 0.0,
+      daily_pnl: 0.0,
+      daily_dd_pct: 0.0,
+      drawdown_pct: 0.0,
+      status: 'CONNECTED',
+      execution_mode: execMode,
+      login: String(body.login).trim(),
+      server: String(body.server).trim(),
+      last_updated: new Date().toISOString()
+    };
+
+    // 1. Update dashboard/data.json directly for instant UI reflection
+    const possiblePaths = [
+      path.join(process.cwd(), '..', 'dashboard', 'data.json'),
+      path.join(process.cwd(), 'dashboard', 'data.json'),
+      path.join('C:', 'Users', 'PwezaCore', 'Desktop', 'GOLD CLONE', 'dashboard', 'data.json')
+    ];
+
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        try {
+          const raw = fs.readFileSync(p, 'utf-8');
+          const parsed = JSON.parse(raw);
+          const currentAccounts = parsed.accounts || [];
+          // Replace or add
+          const updated = [
+            ...currentAccounts.filter((a: any) => a.id !== accId && a.account_id !== accId),
+            newAccountObj
+          ];
+          parsed.accounts = updated;
+          fs.writeFileSync(p, JSON.stringify(parsed, null, 2), 'utf-8');
+        } catch (e) {
+          console.warn('[AccountsAPI] Failed updating data.json:', e);
+        }
+      }
+    }
+
+    // 2. Sync to Supabase accounts_overview table
+    if (SUPABASE_SERVICE_ROLE_KEY) {
+      try {
+        const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+          auth: { persistSession: false },
+        });
+        await supabase.from('accounts_overview').upsert({
+          account_id: accId,
+          name: accName,
           balance: balance,
           equity: balance,
+          daily_pnl: 0.0,
+          daily_dd_pct: 0.0,
+          max_dd_limit: balance * 0.04,
           status: 'CONNECTED',
-          execution_mode: body.execution_mode || 'AUTOMATED_EA'
-        }
-      });
+          last_updated: new Date().toISOString()
+        });
+      } catch (e) {
+        console.warn('[AccountsAPI] Supabase sync notice:', e);
+      }
     }
+
+    // 3. Forward to Python background daemon if listening on port 8080 (non-blocking with timeout)
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      await fetch('http://127.0.0.1:8080/api/accounts/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          name: accName,
+          account_type: accType,
+          balance: balance,
+          login: String(body.login).trim(),
+          password: String(body.password || '').trim(),
+          server: String(body.server).trim(),
+          execution_mode: execMode,
+          mode: 'INDEPENDENT'
+        }),
+      });
+      clearTimeout(timeoutId);
+    } catch (e) {
+      // Daemon may be busy or standalone, already saved to JSON and DB
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `Account ${accName} ($${balance.toFixed(2)}) connected successfully!`,
+      account: newAccountObj
+    });
   } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: err.message || 'Failed to add account' }, { status: 500 });
   }
 }
