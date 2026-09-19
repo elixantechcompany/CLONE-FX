@@ -51,7 +51,10 @@ import {
   DollarSign,
   PieChart,
   Smile,
-  BarChart2
+  BarChart2,
+  Square,
+  Bot,
+  Power
 } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -62,7 +65,7 @@ export default function DashboardPage() {
   const [user, setUser] = useState<UserProfile>({
     name: 'Guest Trader',
     email: '',
-    accountType: 'STANDARD_USD',
+    accountType: 'REAL',
     isLoggedIn: false,
   });
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
@@ -70,7 +73,7 @@ export default function DashboardPage() {
   const [authEmail, setAuthEmail] = useState<string>('');
   const [authPassword, setAuthPassword] = useState<string>('');
   const [authName, setAuthName] = useState<string>('');
-  const [authType, setAuthType] = useState<string>('STANDARD_USD');
+  const [authType, setAuthType] = useState<string>('REAL');
   const [authLoading, setAuthLoading] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -83,6 +86,10 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [scanning, setScanning] = useState<boolean>(false);
   const [lastSync, setLastSync] = useState<string>('Just now');
+
+  // Master EA Automation Switch State
+  const [eaActive, setEaActive] = useState<boolean>(true);
+  const [eaToggling, setEaToggling] = useState<boolean>(false);
 
   // Trading Journal State
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
@@ -119,10 +126,10 @@ export default function DashboardPage() {
   const [calcSymbol, setCalcSymbol] = useState<string>('BTCUSD');
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
-  // Add Account Modal State (5 Rich MT5 Types, $20 Min)
+  // Add Account Modal State (Normal Real/Demo MT5 Types, $20 Min)
   const [showAddAccountModal, setShowAddAccountModal] = useState<boolean>(false);
   const [newAccName, setNewAccName] = useState<string>('');
-  const [newAccType, setNewAccType] = useState<string>('STANDARD_USD');
+  const [newAccType, setNewAccType] = useState<string>('REAL');
   const [newAccBalance, setNewAccBalance] = useState<number>(20);
   const [newAccLogin, setNewAccLogin] = useState<string>('');
   const [newAccPassword, setNewAccPassword] = useState<string>('');
@@ -187,6 +194,9 @@ export default function DashboardPage() {
         if (dashData.early_warnings) setEarlyWarnings(dashData.early_warnings);
         if (dashData.positions) setPositions(dashData.positions);
         if (dashData.accounts) setAccounts(dashData.accounts);
+        if (dashData.master_switch && dashData.master_switch.algo_trading_active !== undefined) {
+          setEaActive(!!dashData.master_switch.algo_trading_active);
+        }
 
         // Map live scanner setups with strict BUY / SELL actions
         const scannerSetups: ConfluenceSignal[] = [
@@ -598,7 +608,7 @@ export default function DashboardPage() {
       setNewAccPassword('');
       setNewAccServer('');
       setNewAccBalance(20);
-      setNewAccType('STANDARD_USD');
+      setNewAccType('REAL');
       await fetchData();
     } catch (err: any) {
       console.error('Account connection failed:', err);
@@ -608,6 +618,56 @@ export default function DashboardPage() {
       setAddAccountError(msg);
     } finally {
       setAddingAccount(false);
+    }
+  };
+
+  // Master EA Automation Switch (Start / Stop EA)
+  const handleToggleEaMaster = async () => {
+    try {
+      setEaToggling(true);
+      const nextState = !eaActive;
+      setEaActive(nextState);
+      const res = await fetch('/api/ea/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: nextState }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setEaActive(data.algo_trading_active);
+        showToast(
+          data.algo_trading_active
+            ? '🟢 EA STARTED: Automated MT5 execution active across accounts.'
+            : '🛑 EA STOPPED: Automated MT5 execution paused safely.'
+        );
+        playChime();
+      } else {
+        showToast(`EA Toggle notice: ${data.error || 'State updated'}`);
+      }
+    } catch (e: any) {
+      showToast(`EA Toggle notice: ${e.message || 'State updated'}`);
+    } finally {
+      setEaToggling(false);
+    }
+  };
+
+  // Remove Account from Fleet
+  const handleDeleteAccount = async (accId: string) => {
+    if (!confirm('Are you sure you want to remove this MT5 account from your fleet?')) return;
+    try {
+      const res = await fetch(`/api/accounts?id=${encodeURIComponent(accId)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setAccounts((prev) => prev.filter((a) => a.id !== accId));
+        showToast(`Account removed from fleet successfully.`);
+        await fetchData();
+      } else {
+        showToast(`Failed to remove account: ${data.error || 'Server error'}`);
+      }
+    } catch (e: any) {
+      showToast(`Error removing account: ${e.message}`);
     }
   };
 
@@ -963,8 +1023,14 @@ export default function DashboardPage() {
           className={`tab-btn ${activeTab === 'ACCOUNTS' ? 'active' : ''}`}
           onClick={() => switchTab('ACCOUNTS')}
         >
-          <Wallet size={15} />
-          🏦 Account Fleet (${accounts.length} linked)
+          <Bot size={15} />
+          🤖 EA & Accounts ({accounts.length})
+          <span
+            className={eaActive ? 'badge badge-buy' : 'badge badge-sell'}
+            style={{ fontSize: '9px', padding: '2px 6px', marginLeft: '4px' }}
+          >
+            {eaActive ? 'EA ON' : 'EA OFF'}
+          </span>
         </button>
 
         <button
@@ -1613,10 +1679,93 @@ export default function DashboardPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 4: ACCOUNT FLEET ($20 USD Minimum Initial Balance)                    */}
+      {/* TAB 4: EA BOT & ACCOUNT FLEET (Automated MT5 Execution Engine)            */}
       {/* ========================================================================= */}
       {activeTab === 'ACCOUNTS' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* EA Master Switch & Automation Controller Banner */}
+          <div
+            className="card"
+            style={{
+              background: eaActive
+                ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(13, 17, 23, 0.95) 100%)'
+                : 'linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(13, 17, 23, 0.95) 100%)',
+              border: eaActive ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(239, 68, 68, 0.4)',
+              boxShadow: eaActive
+                ? '0 0 25px rgba(16, 185, 129, 0.15)'
+                : '0 0 25px rgba(239, 68, 68, 0.15)',
+              padding: '20px 24px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '16px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div
+                style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '14px',
+                  background: eaActive ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: eaActive ? 'var(--emerald)' : 'var(--rose)',
+                }}
+              >
+                <Bot size={28} />
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <h2 style={{ fontSize: '18px', fontWeight: 800 }}>EA Automated Trading Engine</h2>
+                  <span
+                    className={`badge ${eaActive ? 'badge-buy' : 'badge-sell'}`}
+                    style={{ fontSize: '11px', padding: '4px 10px' }}
+                  >
+                    {eaActive ? '🟢 EA RUNNING' : '🛑 EA STOPPED'}
+                  </span>
+                </div>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', maxWidth: '580px' }}>
+                  {eaActive
+                    ? 'Automated execution is ARMED. Verified 3/3 institutional confluence setups automatically place orders onto connected MT5 accounts.'
+                    : 'Automated execution is HALTED. Terminal is in manual observation mode. No trades will be opened automatically.'}
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button
+                className={eaActive ? 'btn btn-danger' : 'btn btn-primary'}
+                style={{
+                  padding: '12px 24px',
+                  fontSize: '14px',
+                  fontWeight: 800,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  borderRadius: '12px',
+                }}
+                onClick={handleToggleEaMaster}
+                disabled={eaToggling}
+              >
+                {eaActive ? (
+                  <>
+                    <Square size={16} fill="currentColor" />
+                    {eaToggling ? 'Stopping...' : 'Stop EA (Halt Trading)'}
+                  </>
+                ) : (
+                  <>
+                    <Play size={16} fill="currentColor" />
+                    {eaToggling ? 'Starting...' : 'Start EA (Begin Auto-Trading)'}
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Account Fleet Header */}
           <div
             style={{
               display: 'flex',
@@ -1631,12 +1780,12 @@ export default function DashboardPage() {
             }}
           >
             <div>
-              <h2 style={{ fontSize: '17px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Wallet size={18} className="gold" />
-                Connected MT5 Account Fleet
-              </h2>
+              <h3 style={{ fontSize: '16px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Wallet size={17} className="gold" />
+                Connected MT5 Accounts ({accounts.length})
+              </h3>
               <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                Zero dummy accounts. Connect real MT5 trading accounts with minimum $20.00 USD balance.
+                Connect real or demo MT5 trading accounts. All fake and mock accounts have been completely purged.
               </p>
             </div>
 
@@ -1664,13 +1813,13 @@ export default function DashboardPage() {
               >
                 <div style={{ fontSize: '32px', marginBottom: '8px' }}>🏦</div>
                 <div style={{ fontWeight: 700, fontSize: '16px', color: '#fff' }}>
-                  No Accounts Added Yet
+                  No MT5 Accounts Connected Yet
                 </div>
                 <div style={{ fontSize: '12px', marginTop: '4px', maxWidth: '480px', margin: '6px auto 16px' }}>
-                  All old mock accounts have been purged. Add your real personal broker or funded accounts to begin execution.
+                  All old fake accounts have been purged. Add your real or demo broker account below to enable automated or manual execution.
                 </div>
                 <button className="btn btn-primary" onClick={() => setShowAddAccountModal(true)}>
-                  <PlusCircle size={14} /> Add First Real Account ($20.00 Minimum)
+                  <PlusCircle size={14} /> Add First MT5 Account ($20.00 Minimum)
                 </button>
               </div>
             ) : (
@@ -1680,7 +1829,7 @@ export default function DashboardPage() {
                     <div>
                       <div style={{ fontWeight: 800, fontSize: '16px' }}>{acc.name}</div>
                       <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px' }}>
-                        Type: {acc.type} • Mode: {acc.execution_mode || 'AUTOMATED_EA'}
+                        Type: <strong style={{ color: '#fff' }}>{acc.type === 'DEMO' ? 'Demo Account (Practice)' : 'Real Account (Live)'}</strong> • Mode: {acc.execution_mode || 'AUTOMATED_EA'}
                       </div>
                     </div>
                     <span className="badge badge-green">{acc.status || 'CONNECTED'}</span>
@@ -1724,13 +1873,22 @@ export default function DashboardPage() {
                     <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
                       Min Floor: $20.00 USD (Verified)
                     </span>
-                    <button
-                      className="btn"
-                      style={{ fontSize: '11px', padding: '4px 10px' }}
-                      onClick={() => showToast(`Launching MT5 terminal for ${acc.name}...`)}
-                    >
-                      <Play size={11} /> Launch MT5
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        className="btn"
+                        style={{ fontSize: '11px', padding: '4px 10px' }}
+                        onClick={() => showToast(`Launching MT5 terminal for ${acc.name}...`)}
+                      >
+                        <Play size={11} /> Launch MT5
+                      </button>
+                      <button
+                        className="btn"
+                        style={{ fontSize: '11px', padding: '4px 8px', color: 'var(--rose)', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+                        onClick={() => handleDeleteAccount(acc.id)}
+                      >
+                        <Trash2 size={11} /> Remove
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))
@@ -1745,7 +1903,7 @@ export default function DashboardPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Navigation:</span>
               <span className="badge badge-gold" style={{ fontSize: '11px' }}>Page 4 / 5</span>
-              <strong style={{ color: '#fff', fontSize: '13px' }}>🏦 Connected Account Fleet</strong>
+              <strong style={{ color: '#fff', fontSize: '13px' }}>🤖 EA & Connected Accounts</strong>
             </div>
             <button className="page-nav-btn primary" onClick={() => switchTab('CALCULATOR')}>
               Next: Lot Calculator (5/5) <ArrowRight size={14} />
@@ -2308,39 +2466,20 @@ export default function DashboardPage() {
                     onChange={(e) => setNewAccType(e.target.value)}
                     style={{ width: '100%', marginTop: '4px', padding: '9px 12px', background: '#161a26', border: '1px solid var(--border-subtle)', borderRadius: '8px', color: '#fff', fontSize: '13px' }}
                   >
-                    <option value="STANDARD_USD">Standard (USD) - 1.0 Lot = 100k</option>
-                    <option value="CENT_USC">Cent / Micro (USC) - $20 = 2,000 Cents</option>
-                    <option value="PROP_FIRM">Prop Firm Challenge (4% Max DD)</option>
-                    <option value="RAW_SPREAD">Raw Spread / Zero ECN (0.0 Pip)</option>
-                    <option value="DEMO">Demo / Paper Trading</option>
+                    <option value="REAL">Real Account (Live)</option>
+                    <option value="DEMO">Demo Account (Practice)</option>
                   </select>
                 </div>
               </div>
 
-              {/* Dynamic Account Type Explanation Banner */}
-              {newAccType === 'CENT_USC' && (
-                <div style={{ background: 'rgba(245, 200, 66, 0.08)', border: '1px solid rgba(245, 200, 66, 0.25)', padding: '8px 12px', borderRadius: '8px', fontSize: '11px', color: 'var(--gold-primary)' }}>
-                  💡 <strong>Cent Account Selected:</strong> Deposits are denominated in cents ($20.00 = 2,000 USC). Allows safe 0.01 lot position sizing with micro risk per trade.
+              {/* Clean MT5 Account Notice */}
+              {newAccType === 'REAL' ? (
+                <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', padding: '10px 14px', borderRadius: '10px', fontSize: '12px', color: 'var(--emerald)' }}>
+                  🟢 <strong>Real Live MT5 Account:</strong> Connects to your broker live server (e.g. Exness-Real, IC Markets Live, XM). Real market execution with your deposit balance.
                 </div>
-              )}
-              {newAccType === 'PROP_FIRM' && (
-                <div style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)', padding: '8px 12px', borderRadius: '8px', fontSize: '11px', color: '#60a5fa' }}>
-                  🛡️ <strong>Prop Firm Challenge Rules:</strong> Enforces 4.0% maximum daily drawdown ceiling and requires minimum 1:2.0 risk-to-reward ratio before trade triggers.
-                </div>
-              )}
-              {newAccType === 'STANDARD_USD' && (
-                <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', padding: '8px 12px', borderRadius: '8px', fontSize: '11px', color: 'var(--emerald)' }}>
-                  📈 <strong>Standard USD Broker Account:</strong> Suitable for standard accounts on Exness, XM, HF Markets, IC Markets. Min $20.00 initial balance.
-                </div>
-              )}
-              {newAccType === 'RAW_SPREAD' && (
-                <div style={{ background: 'rgba(168, 85, 247, 0.08)', border: '1px solid rgba(168, 85, 247, 0.25)', padding: '8px 12px', borderRadius: '8px', fontSize: '11px', color: '#c084fc' }}>
-                  ⚡ <strong>Raw Spread / Zero ECN:</strong> Direct raw spreads with commission, optimal for scalping and algorithmic order blocks.
-                </div>
-              )}
-              {newAccType === 'DEMO' && (
-                <div style={{ background: 'rgba(255, 255, 255, 0.05)', border: '1px solid var(--border-subtle)', padding: '8px 12px', borderRadius: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                  🧪 <strong>Demo Environment:</strong> Safe paper trading for algorithmic testing, forward testing setups, and strategy calibration.
+              ) : (
+                <div style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)', padding: '10px 14px', borderRadius: '10px', fontSize: '12px', color: '#60a5fa' }}>
+                  🧪 <strong>Demo Practice Account:</strong> Risk-free practice environment for testing EA algorithmic execution and forward-testing setups.
                 </div>
               )}
 
@@ -2450,8 +2589,8 @@ export default function DashboardPage() {
           className={`mobile-dock-btn ${activeTab === 'ACCOUNTS' ? 'active' : ''}`}
           onClick={() => switchTab('ACCOUNTS')}
         >
-          <Wallet size={18} />
-          <span>Accounts</span>
+          <Bot size={18} />
+          <span>EA Fleet</span>
         </button>
         <button
           className={`mobile-dock-btn ${activeTab === 'CALCULATOR' ? 'active' : ''}`}

@@ -210,6 +210,21 @@ class AccountManager:
 
         raise KeyError(f"Account {acc_id} not found")
 
+    def remove_account(self, acc_id: str) -> bool:
+        """Removes an account from configuration and in-memory fleet."""
+        acc_id = acc_id.lower()
+        acc_list = self.config.get("accounts", {}).get("account_list", [])
+        original_len = len(acc_list)
+        filtered = [a for a in acc_list if a.get("id", "").lower() != acc_id]
+
+        if len(filtered) < original_len:
+            self.config["accounts"]["account_list"] = filtered
+            self._save_config()
+            self.load_all()
+            logger.info(f"Account [{acc_id.upper()}] removed from fleet.")
+            return True
+        return False
+
     def launch_terminal(self, acc_id: str) -> bool:
         """
         Launches the dedicated MT5 terminal executable for this account locally.

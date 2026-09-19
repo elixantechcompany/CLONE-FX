@@ -148,6 +148,30 @@ class DashboardHTTPRequestHandler(SimpleHTTPRequestHandler):
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode("utf-8"))
+        elif self.path in ["/api/ea/toggle", "/api/ea/control"]:
+            req_active = body.get("active")
+            if global_exporter:
+                new_state = (not global_exporter.master_ea_enabled) if req_active is None else bool(req_active)
+                global_exporter.set_master_ea(new_state)
+                global_exporter.export_data()
+                current_state = global_exporter.master_ea_enabled
+            else:
+                current_state = bool(req_active) if req_active is not None else True
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, "algo_trading_active": current_state}).encode("utf-8"))
+            return
+
+        elif self.path == "/api/accounts/delete":
+            acc_id = body.get("account_id", "")
+            removed = account_manager.remove_account(acc_id)
+            if global_exporter:
+                global_exporter.export_data()
+            self.send_response(200 if removed else 400)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": removed, "account_id": acc_id}).encode("utf-8"))
             return
 
         self.send_response(404)

@@ -160,6 +160,20 @@ body {
   color: var(--gold-primary);
 }
 
+.btn-danger {
+  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #ffffff;
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.35);
+  font-weight: 700;
+}
+
+.btn-danger:hover {
+  background: linear-gradient(135deg, #f87171 0%, #dc2626 100%);
+  box-shadow: 0 0 24px rgba(239, 68, 68, 0.55);
+  transform: translateY(-1px);
+}
+
 /* Navigation Tabs */
 .tabs-nav {
   display: flex;

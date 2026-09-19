@@ -40,6 +40,11 @@ class DashboardExporter:
         self.structure_analyzer = MarketStructureAnalyzer(config)
         self.setup_detector = PerfectSetupDetector(config)
         self.account_manager = AccountManager()
+        self.master_ea_enabled = True
+
+    def set_master_ea(self, enabled: bool):
+        self.master_ea_enabled = bool(enabled)
+        logger.info(f"Master EA execution set to: {self.master_ea_enabled}")
 
     def export_data(
         self,
@@ -214,7 +219,7 @@ class DashboardExporter:
                 "adr": adr_info,
                 "master_switch": {
                     "primary_switch": "MT5_NATIVE_ALGO_TRADING",
-                    "algo_trading_active": any(a.get("algo_trading_allowed", False) for a in accounts_summary) if accounts_summary else False,
+                    "algo_trading_active": self.master_ea_enabled,
                 },
                 "account": {
                     "balance": round(float(primary_acc.get("balance", 0.0)), 2),

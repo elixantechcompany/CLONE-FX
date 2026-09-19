@@ -175,10 +175,13 @@ export interface DashboardApiResponse {
     equity: number;
     margin_free: number;
   };
-  performance?: {
-    total_day_pnl: number;
+  master_switch?: {
+    primary_switch?: string;
+    algo_trading_active?: boolean;
   };
 }
+
+export type MT5AccountType = 'REAL' | 'DEMO' | string;
 
 export interface MarketDataBundle {
   symbol: 'XAUUSD' | 'BTCUSD';
