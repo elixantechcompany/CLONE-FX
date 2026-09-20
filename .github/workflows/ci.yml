@@ -1,4 +1,4 @@
-name: CI — Build & Test
+﻿name: CI - Build and Test
 
 on:
   push:
@@ -16,10 +16,52 @@ jobs:
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt
+
+      - name: Inject MetaTrader5 stub (Linux CI)
+        # MetaTrader5 is Windows-only. This stub lets src modules import cleanly on Ubuntu.
+        shell: python
+        run: |
+          import sys, types, pathlib
+          mt5 = types.ModuleType("MetaTrader5")
+          for name in [
+              "TRADE_ACTION_DEAL","TRADE_ACTION_SLTP","TRADE_ACTION_CLOSE_BY",
+              "ORDER_TYPE_BUY","ORDER_TYPE_SELL","ORDER_FILLING_IOC",
+              "ORDER_FILLING_FOK","ORDER_FILLING_RETURN",
+              "POSITION_TYPE_BUY","POSITION_TYPE_SELL",
+              "COPY_TICKS_ALL","COPY_TICKS_TRADE",
+          ]:
+              setattr(mt5, name, 0)
+          for fn in [
+              "initialize","shutdown","login","account_info",
+              "symbol_info","symbol_info_tick","symbol_select",
+              "positions_get","orders_get","history_deals_get","history_orders_get",
+              "order_send","order_check","order_calc_profit","order_calc_margin",
+              "copy_rates_from_pos","copy_rates_range","copy_ticks_from",
+              "last_error","terminal_info","version",
+          ]:
+              setattr(mt5, fn, lambda *a, **kw: None)
+          sys.modules["MetaTrader5"] = mt5
+          # Write persistent stub so subprocess test runners see it too
+          vi = sys.version_info
+          site = pathlib.Path(sys.prefix) / "lib" / f"python{vi.major}.{vi.minor}" / "site-packages"
+          site.mkdir(parents=True, exist_ok=True)
+          stub_code = (
+              "import sys, types\n"
+              "if 'MetaTrader5' not in sys.modules:\n"
+              "    _m = types.ModuleType('MetaTrader5')\n"
+              "    for _n in ['TRADE_ACTION_DEAL','TRADE_ACTION_SLTP','TRADE_ACTION_CLOSE_BY','ORDER_TYPE_BUY','ORDER_TYPE_SELL','ORDER_FILLING_IOC','ORDER_FILLING_FOK','ORDER_FILLING_RETURN','POSITION_TYPE_BUY','POSITION_TYPE_SELL','COPY_TICKS_ALL','COPY_TICKS_TRADE']:\n"
+              "        setattr(_m,_n,0)\n"
+              "    for _f in ['initialize','shutdown','login','account_info','symbol_info','symbol_info_tick','symbol_select','positions_get','orders_get','history_deals_get','history_orders_get','order_send','order_check','order_calc_profit','order_calc_margin','copy_rates_from_pos','copy_rates_range','copy_ticks_from','last_error','terminal_info','version']:\n"
+              "        setattr(_m,_f,lambda *a,**kw:None)\n"
+              "    sys.modules['MetaTrader5']=_m\n"
+          )
+          (site / "_mt5_ci_stub.py").write_text(stub_code)
+          (site / "mt5_ci_stub.pth").write_text("import _mt5_ci_stub\n")
+          print(f"MT5 stub written to {site}")
 
       - name: Run unit tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
@@ -33,8 +75,8 @@ jobs:
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: "npm"
           cache-dependency-path: signals-web/package-lock.json
 
       - name: Install dependencies
