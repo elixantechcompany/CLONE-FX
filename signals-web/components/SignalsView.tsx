@@ -11,11 +11,25 @@ interface SignalsViewProps {
   marketSchedules: Record<string, MarketSchedule>;
   currentPrice: number;
   macroBias: string;
-  killzoneInfo?: { is_killzone: boolean; session_name: string; trading_allowed: boolean; utc_time: string; };
-  adrInfo?: { adr_used_pct: number; range_pts: number; typical_adr: number; is_exhausted: boolean; warning: string; };
+  killzoneInfo?: { is_killzone: boolean; session_name: string; trading_allowed: boolean; utc_time: string };
+  adrInfo?: { adr_used_pct: number; range_pts: number; typical_adr: number; is_exhausted: boolean; warning: string };
   onLogToJournal: (signal: ConfluenceSignal) => void;
   onRefresh: () => void;
   isScanning: boolean;
+}
+
+const S: Record<string, React.CSSProperties> = {
+  row:   { display: 'flex', alignItems: 'center' },
+  col:   { display: 'flex', flexDirection: 'column' },
+  card:  { background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: 16, transition: 'border-color .18s' },
+};
+
+function Label({ children }: { children: React.ReactNode }) {
+  return <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-dim)', fontFamily: 'var(--font-ui)' }}>{children}</span>;
+}
+
+function Mono({ children, size = 14, color = 'var(--text-primary)', bold = true }: { children: React.ReactNode; size?: number; color?: string; bold?: boolean }) {
+  return <span style={{ fontFamily: 'var(--font-mono)', fontSize: size, fontWeight: bold ? 700 : 400, color }}>{children}</span>;
 }
 
 export const SignalsView: React.FC<SignalsViewProps> = ({
@@ -23,163 +37,316 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
   marketSchedules, currentPrice, macroBias, killzoneInfo, adrInfo,
   onLogToJournal, onRefresh, isScanning,
 }) => {
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [calcPips, setCalcPips] = useState<number>(30);
-  const [calcLots, setCalcLots] = useState<number>(0.01);
+  const [copied, setCopied] = useState(false);
+  const [calcPips, setCalcPips] = useState(30);
+  const [calcLots, setCalcLots] = useState(0.01);
 
-  const currentSchedule = marketSchedules[selectedSymbol];
-  const isMarketOpen = currentSchedule ? currentSchedule.is_open : true;
-  const topSignal = activeSignals[0] ?? null;
-  const isBuy = topSignal ? (topSignal.direction || '').toUpperCase().includes('BUY') : true;
-  const scoreNum = topSignal?.scoreNumeric ?? (topSignal ? 3 : 0);
+  const schedule  = marketSchedules[selectedSymbol];
+  const isOpen    = schedule ? schedule.is_open : true;
+  const top       = activeSignals[0] ?? null;
+  const isBuy     = top ? (top.direction || '').toUpperCase().includes('BUY') : true;
+  const scoreNum  = top?.scoreNumeric ?? (top ? 3 : 0);
+  const rr        = top?.riskReward ?? 2.5;
+  const rrClean   = Math.min(Math.max(rr, 0.5), 10); // clamp to sane range
+  const adrPct    = adrInfo?.adr_used_pct ?? 45;
+  const isExhausted = adrPct > 80;
+  const profit$   = selectedSymbol === 'XAUUSD' ? calcPips * calcLots * 10 : (calcPips / 100) * calcLots * 100;
 
-  const handleCopyParams = (sig: ConfluenceSignal) => {
-    const text = `ORDER: ${sig.direction}\nSYMBOL: ${sig.symbol}\nTYPE: ${sig.orderType || 'BUY MARKET'}\nENTRY: ${sig.entryPrice.toFixed(2)}\nSTOP LOSS: ${sig.stopLoss.toFixed(2)}\nTAKE PROFIT 1: ${sig.takeProfit1.toFixed(2)}\nTAKE PROFIT 2: ${(sig.takeProfit2 || sig.takeProfit1 * 1.5).toFixed(2)}\nR:R RATIO: 1:${sig.riskReward.toFixed(2)}`;
-    navigator.clipboard.writeText(text);
-    setCopiedId(sig.id || 'sig-1');
-    setTimeout(() => setCopiedId(null), 2000);
+  const handleCopy = () => {
+    if (!top) return;
+    const tp2 = top.takeProfit2 || top.takeProfit1 * 1.5;
+    navigator.clipboard.writeText(
+      `DIRECTION: ${isBuy ? 'BUY (LONG)' : 'SELL (SHORT)'}\nSYMBOL: ${top.symbol}\nENTRY: ${top.entryPrice.toFixed(2)}\nSTOP LOSS: ${top.stopLoss.toFixed(2)}\nTAKE PROFIT 1: ${top.takeProfit1.toFixed(2)}\nTAKE PROFIT 2: ${tp2.toFixed(2)}\nRISK/REWARD: 1:${rrClean.toFixed(2)}`
+    );
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
-  const estimatedProfitDollars = selectedSymbol === 'XAUUSD' ? calcPips * calcLots * 10 : (calcPips / 100) * calcLots * 100;
+  // ── plain-English helpers ──────────────────────────
+  const sessionPlain = () => {
+    const s = killzoneInfo?.session_name || '';
+    if (s.includes('London')) return 'London open — best time to trade';
+    if (s.includes('New York') || s.includes('NY')) return 'New York open — high activity';
+    if (s.includes('Asian')) return 'Asian session — usually slow';
+    if (s.includes('Overlap')) return 'London/NY overlap — peak volume';
+    return 'Active session';
+  };
+
+  const adrPlain = () => {
+    if (adrPct > 80) return 'Gold has already moved a lot today — risk of reversal is higher.';
+    if (adrPct > 60) return 'More than half of today\'s typical range is used. Be careful with entries.';
+    return 'Plenty of room to move today. Conditions look clean.';
+  };
+
+  const biasBrief = () => {
+    const b = macroBias.toUpperCase();
+    if (b.includes('ACCUM')) return 'Smart money is quietly buying — daily trend is up.';
+    if (b.includes('DIST'))  return 'Smart money is quietly selling — daily trend is down.';
+    if (b.includes('BULL'))  return 'Daily trend pointing up.';
+    if (b.includes('BEAR'))  return 'Daily trend pointing down.';
+    return macroBias;
+  };
 
   return (
-    <div className="flex flex-col gap-5 pb-20 lg:pb-6">
-      {/* ZONE 1 — STATUS BAR */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-[#0d121c]/90 border border-white/[0.08] p-3.5 sm:p-4 rounded-2xl backdrop-blur-xl">
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <button onClick={() => setSelectedSymbol('XAUUSD')} className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${selectedSymbol === 'XAUUSD' ? 'bg-gradient-to-r from-amber-500/20 to-yellow-500/20 text-amber-300 border border-amber-500/40 shadow-[0_0_15px_rgba(245,200,66,0.2)]' : 'bg-white/[0.03] text-slate-400 hover:text-slate-200 border border-white/[0.05]'}`}>
-            <span>🟡</span><span>XAUUSD (Gold)</span>
-            {!marketSchedules['XAUUSD']?.is_open && <span className="text-[9px] px-1.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">CLOSED</span>}
-          </button>
-          <button onClick={() => setSelectedSymbol('BTCUSD')} className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${selectedSymbol === 'BTCUSD' ? 'bg-gradient-to-r from-orange-500/20 to-amber-500/20 text-orange-300 border border-orange-500/40 shadow-[0_0_15px_rgba(249,115,22,0.2)]' : 'bg-white/[0.03] text-slate-400 hover:text-slate-200 border border-white/[0.05]'}`}>
-            <span>🟠</span><span>BTCUSD (24/7)</span>
-            <span className="text-[9px] px-1.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">LIVE</span>
-          </button>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, paddingBottom: 80, fontFamily: 'var(--font-ui)' }}>
+
+      {/* ── Zone 1: Status bar ─────────────────── */}
+      <div style={{ ...S.card, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '12px 16px' }}>
+        {/* Symbol switcher */}
+        <div style={{ ...S.row, gap: 6 }}>
+          {(['XAUUSD', 'BTCUSD'] as const).map(sym => {
+            const active = selectedSymbol === sym;
+            const isSymOpen = marketSchedules[sym]?.is_open ?? true;
+            return (
+              <button key={sym} onClick={() => setSelectedSymbol(sym)} style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '7px 13px', borderRadius: 9, cursor: 'pointer',
+                border: active ? (sym === 'XAUUSD' ? '1px solid rgba(201,154,18,0.35)' : '1px solid rgba(249,115,22,0.35)') : '1px solid var(--border)',
+                background: active ? (sym === 'XAUUSD' ? 'rgba(201,154,18,0.1)' : 'rgba(249,115,22,0.1)') : 'transparent',
+                color: active ? (sym === 'XAUUSD' ? '#e0b84a' : '#fb923c') : 'var(--text-dim)',
+                fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 700, transition: 'all .14s',
+              }}>
+                <span style={{ fontSize: 14 }}>{sym === 'XAUUSD' ? '🥇' : '₿'}</span>
+                <span>{sym}</span>
+                <span style={{
+                  fontSize: 9, padding: '1px 5px', borderRadius: 3, fontFamily: 'var(--font-mono)', fontWeight: 700,
+                  background: isSymOpen ? 'rgba(0,200,150,0.12)' : 'rgba(232,68,90,0.12)',
+                  color: isSymOpen ? '#00c896' : '#e8445a',
+                  border: isSymOpen ? '1px solid rgba(0,200,150,0.2)' : '1px solid rgba(232,68,90,0.2)',
+                }}>{isSymOpen ? 'OPEN' : 'CLOSED'}</span>
+              </button>
+            );
+          })}
         </div>
-        <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
-          <div className="text-left sm:text-right">
-            <div className="text-[10px] uppercase font-semibold text-slate-400">Live Quote</div>
-            <div className="text-base sm:text-lg font-mono font-extrabold text-slate-100">${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+
+        {/* Live price + scan button */}
+        <div style={{ ...S.row, gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Live Price</div>
+            <Mono size={18} color="#e6eaf4">${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Mono>
           </div>
-          <button onClick={onRefresh} disabled={isScanning} className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-bold hover:bg-cyan-500/20 transition-all active:scale-95 disabled:opacity-50">
-            <span className={isScanning ? 'animate-spin' : ''}>🔄</span>
-            <span>{isScanning ? 'Scanning...' : 'Scan Market'}</span>
+          <button onClick={onRefresh} disabled={isScanning} style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 9,
+            border: '1px solid rgba(56,189,248,0.22)', background: 'rgba(56,189,248,0.07)',
+            color: '#38bdf8', fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 700,
+            cursor: isScanning ? 'not-allowed' : 'pointer', opacity: isScanning ? 0.6 : 1, transition: 'all .14s',
+          }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+              style={{ animation: isScanning ? 'spin 1s linear infinite' : 'none' }}>
+              <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+            {isScanning ? 'Scanning...' : 'Scan Now'}
           </button>
         </div>
       </div>
 
-      {!isMarketOpen && currentSchedule && (
-        <div className="bg-gradient-to-r from-amber-500/10 via-rose-500/10 to-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-xs text-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">⏳</span>
+      {/* Market closed banner */}
+      {!isOpen && schedule && (
+        <div style={{
+          background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.2)',
+          borderRadius: 12, padding: '12px 16px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+        }}>
+          <div style={{ ...S.row, gap: 10 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             <div>
-              <div className="font-extrabold text-sm text-amber-300">{currentSchedule.status_text}</div>
-              <p className="text-slate-300 text-xs mt-0.5">Weekend market structure analysis active. Signals derive from closed D1/H4 candles. Live auto-execution resumes Sunday 22:00 UTC.</p>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}>Market closed — weekend</div>
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>Signals shown are based on Friday's close. Auto-trading resumes Sunday 22:00 UTC.</div>
             </div>
           </div>
-          <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[11px] font-bold whitespace-nowrap">AUTO-RESUMES SUN 22:00 UTC</span>
+          <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#f59e0b', padding: '3px 8px', borderRadius: 5, background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.2)', whiteSpace: 'nowrap' }}>REOPENS SUN 22:00 UTC</span>
         </div>
       )}
 
-      {/* ZONE 2 — ACTIVE SIGNAL CARD (always visible above fold) */}
-      {topSignal ? (
-        <div className={`p-5 sm:p-6 rounded-3xl border transition-all backdrop-blur-xl ${isBuy ? 'bg-gradient-to-br from-[#0c1a15] to-[#091210] border-emerald-500/50 shadow-[0_0_40px_rgba(16,185,129,0.15)]' : 'bg-gradient-to-br from-[#1c0f13] to-[#120a0d] border-rose-500/50 shadow-[0_0_40px_rgba(244,63,94,0.15)]'}`}>
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <span className={`text-sm font-black px-3 py-1.5 rounded-xl tracking-wider ${isBuy ? 'bg-emerald-500 text-black' : 'bg-rose-500 text-white'}`}>{topSignal.direction.toUpperCase().includes('BUY') ? 'LONG' : 'SHORT'}</span>
-              <span className="text-base font-black text-slate-100">{topSignal.symbol}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30">
-                {[1, 2, 3].map((i) => <span key={i} className={`w-2 h-2 rounded-full ${i <= scoreNum ? 'bg-amber-400' : 'bg-slate-700'}`} />)}
-                <span className="text-xs font-black text-amber-300 ml-1">{scoreNum}/3</span>
+      {/* ── Zone 2: Active signal card ─────────── */}
+      {top ? (
+        <div style={{
+          ...S.card,
+          borderColor: isBuy ? 'rgba(0,200,150,0.3)' : 'rgba(232,68,90,0.3)',
+          boxShadow: isBuy ? '0 0 30px rgba(0,200,150,0.08)' : '0 0 30px rgba(232,68,90,0.08)',
+          animation: isBuy ? 'glowLong 3s ease-in-out infinite' : 'glowShort 3s ease-in-out infinite',
+        }}>
+          {/* Header row */}
+          <div style={{ ...S.row, justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ ...S.row, gap: 8 }}>
+              {/* BUY/SELL pill — unmissable */}
+              <div style={{
+                padding: '6px 14px', borderRadius: 7, fontWeight: 800, fontSize: 13, letterSpacing: '0.06em',
+                background: isBuy ? '#00c896' : '#e8445a', color: '#000',
+                fontFamily: 'var(--font-ui)',
+              }}>
+                {isBuy ? '▲ BUY' : '▼ SELL'}
               </div>
-              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">1:{topSignal.riskReward?.toFixed(2) || '2.50'} R:R</span>
+              <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--text-primary)' }}>{top.symbol}</div>
+              {/* Confluence dots */}
+              <div style={{ ...S.row, gap: 4, padding: '5px 10px', borderRadius: 7, background: 'rgba(201,154,18,0.08)', border: '1px solid rgba(201,154,18,0.18)' }}>
+                {[1,2,3].map(i => (
+                  <span key={i} style={{
+                    width: 6, height: 6, borderRadius: '50%', display: 'inline-block',
+                    background: i <= scoreNum ? '#e0b84a' : 'rgba(255,255,255,0.07)',
+                    boxShadow: i <= scoreNum ? '0 0 4px rgba(201,154,18,0.5)' : 'none',
+                  }}/>
+                ))}
+                <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#e0b84a', marginLeft: 4 }}>{scoreNum}/3 checks</span>
+              </div>
+            </div>
+            {/* R:R badge */}
+            <div style={{
+              padding: '5px 10px', borderRadius: 7,
+              background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.18)',
+              fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#38bdf8',
+            }}>
+              Risk/Reward 1:{rrClean.toFixed(2)}
             </div>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-2xl bg-[#080b11]/80 border border-white/[0.06] mb-4">
-            <div><div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1">Entry</div><div className="text-xl font-mono font-black text-slate-100">{topSignal.entryPrice?.toFixed(2)}</div></div>
-            <div><div className="text-[10px] text-rose-400 font-semibold uppercase tracking-wider mb-1">Stop Loss</div><div className="text-xl font-mono font-black text-rose-300">{topSignal.stopLoss?.toFixed(2)}</div></div>
-            <div><div className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider mb-1">TP1 (50% + BE)</div><div className="text-xl font-mono font-black text-emerald-300">{topSignal.takeProfit1?.toFixed(2)}</div></div>
-            <div><div className="text-[10px] text-cyan-400 font-semibold uppercase tracking-wider mb-1">TP2 (Runner)</div><div className="text-xl font-mono font-black text-cyan-300">{(topSignal.takeProfit2 || topSignal.takeProfit1 * 1.5)?.toFixed(2)}</div></div>
+
+          {/* Price levels */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, padding: '12px 14px', borderRadius: 10, background: 'rgba(2,3,5,0.5)', border: '1px solid var(--border)', marginBottom: 12 }}>
+            {[
+              { label: 'Entry',        value: top.entryPrice?.toFixed(2),               color: 'var(--text-primary)' },
+              { label: 'Stop Loss',    value: top.stopLoss?.toFixed(2),                 color: '#e8445a' },
+              { label: 'Target 1',     value: top.takeProfit1?.toFixed(2),              color: '#00c896' },
+              { label: 'Target 2',     value: (top.takeProfit2||top.takeProfit1*1.5)?.toFixed(2), color: '#38bdf8' },
+            ].map(({ label, value, color }) => (
+              <div key={label}>
+                <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 4 }}>{label}</div>
+                <Mono size={16} color={color}>{value}</Mono>
+              </div>
+            ))}
           </div>
-          <p className="text-xs text-slate-300 leading-relaxed mb-4">{(topSignal as any).reason || topSignal.setup_summary || 'D1 Macro Accumulation + 4H Liquidity Sweep of previous Asian low + 1H structural reclaim with Fair Value Gap fill.'}</p>
-          <div className="flex items-center gap-2">
-            <button onClick={() => handleCopyParams(topSignal)} className="flex-1 py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-xs font-bold text-slate-200 border border-white/[0.08] transition-all">{copiedId === (topSignal.id || 'sig-1') ? '✓ Copied!' : 'Copy Order Parameters'}</button>
-            <button onClick={() => onLogToJournal(topSignal)} className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black text-xs font-extrabold transition-all shadow-[0_0_12px_rgba(245,200,66,0.3)]">Log to Journal 📖</button>
+
+          {/* Plain-English reason */}
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 14, padding: '10px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)' }}>
+            {(top as any).reason || top.setup_summary || 'Daily trend is bullish. The 4-hour chart swept below a key low (took out stop losses). Price then reclaimed that level on the 1-hour — this is the entry signal.'}
           </div>
-          {activeSignals.length > 1 && <div className="mt-3 pt-3 border-t border-white/[0.06] text-center text-xs text-slate-400">+{activeSignals.length - 1} more confirmed setup{activeSignals.length > 2 ? 's' : ''} — see confluence detail below ↓</div>}
+
+          {/* Actions */}
+          <div style={{ ...S.row, gap: 8 }}>
+            <button onClick={handleCopy} style={{
+              flex: 1, padding: '9px 0', borderRadius: 9, border: '1px solid var(--border)',
+              background: 'rgba(255,255,255,0.03)', color: 'var(--text-primary)',
+              fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all .14s',
+            }}>
+              {copied ? '✓ Copied to clipboard' : 'Copy order details'}
+            </button>
+            <button onClick={() => onLogToJournal(top)} style={{
+              flex: 1, padding: '9px 0', borderRadius: 9,
+              border: '1px solid rgba(201,154,18,0.4)',
+              background: 'linear-gradient(135deg,#c99a12 0%,#9a7610 100%)',
+              color: '#000', fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 700,
+              cursor: 'pointer', transition: 'all .14s',
+              boxShadow: '0 2px 10px rgba(201,154,18,0.2)',
+            }}>
+              Save to Journal
+            </button>
+          </div>
+
+          {activeSignals.length > 1 && (
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', textAlign: 'center', fontSize: 11, color: 'var(--text-dim)' }}>
+              +{activeSignals.length - 1} more signal{activeSignals.length > 2 ? 's' : ''} confirmed — see breakdown below
+            </div>
+          )}
         </div>
       ) : (
-        <div className="p-6 sm:p-8 rounded-3xl bg-[#0d121c]/90 border border-white/[0.08] backdrop-blur-xl flex flex-col items-center justify-center gap-4 min-h-[200px] text-center">
-          <div className="w-14 h-14 rounded-2xl bg-slate-800/80 border border-white/[0.08] flex items-center justify-center">
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="11" y="2" width="6" height="14" rx="1.5" fill="#f5c842" opacity="0.4"/>
-              <line x1="14" y1="0" x2="14" y2="2" stroke="#f5c842" strokeWidth="2" strokeLinecap="round" opacity="0.4"/>
-              <polyline points="7,18 12,25 22,13" stroke="url(#cg)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity="0.5"/>
-              <defs><linearGradient id="cg" x1="7" y1="18" x2="22" y2="13" gradientUnits="userSpaceOnUse"><stop stopColor="#f5c842"/><stop offset="1" stopColor="#06b6d4"/></linearGradient></defs>
-            </svg>
-          </div>
+        /* No signal state */
+        <div style={{ ...S.card, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 180, gap: 12, textAlign: 'center' }}>
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" strokeWidth="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <div>
-            <div className="font-extrabold text-sm text-slate-200 mb-1">No confirmed setup — scanning</div>
-            <p className="text-xs text-slate-400 max-w-sm leading-relaxed">Waiting for 3/3 confluence (D1 Macro · 4H Sweep · 1H Reclaim). Only fires on high-probability setups.</p>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>No trade signal right now</div>
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', maxWidth: 300, lineHeight: 1.6 }}>
+              Waiting for all 3 conditions to line up: daily trend, 4-hour liquidity sweep, and 1-hour entry. Only fires when everything agrees.
+            </div>
           </div>
-          <button onClick={onRefresh} disabled={isScanning} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-bold hover:bg-cyan-500/20 transition-all disabled:opacity-50">
-            <span className={isScanning ? 'animate-spin' : ''}>🔄</span>
-            <span>{isScanning ? 'Scanning...' : 'Run Manual Scan'}</span>
+          <button onClick={onRefresh} disabled={isScanning} style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 9,
+            border: '1px solid rgba(56,189,248,0.22)', background: 'rgba(56,189,248,0.07)',
+            color: '#38bdf8', fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 700,
+            cursor: isScanning ? 'not-allowed' : 'pointer', opacity: isScanning ? 0.6 : 1,
+          }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+              style={{ animation: isScanning ? 'spin 1s linear infinite' : 'none' }}>
+              <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+            {isScanning ? 'Scanning...' : 'Check now'}
           </button>
         </div>
       )}
 
-      {/* ZONE 3 — CONFLUENCE DETAIL (below fold) */}
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-2 px-1">
-          <div className="h-px flex-1 bg-white/[0.06]" />
-          <span className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">Confluence Detail</span>
-          <div className="h-px flex-1 bg-white/[0.06]" />
+      {/* ── Zone 3: Confluence breakdown ───────── */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <div style={{ flex: 1, height: 1, background: 'var(--border)' }}/>
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-micro)' }}>3-Step Signal Breakdown</span>
+          <div style={{ flex: 1, height: 1, background: 'var(--border)' }}/>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-          <div className="bg-[#0e131d]/90 border border-white/[0.08] p-4 rounded-2xl backdrop-blur-xl">
-            <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-              <span className="font-bold">1. Macro Bias (D1+H4)</span>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">{topSignal ? 'ALIGNED ✓' : 'CHECKING'}</span>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 10 }}>
+          {/* Step 1 */}
+          <div style={S.card}>
+            <div style={{ ...S.row, justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Step 1 — Daily Trend</span>
+              <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, padding: '1px 6px', borderRadius: 3, background: top ? 'rgba(0,200,150,0.1)' : 'rgba(255,255,255,0.05)', color: top ? '#00c896' : 'var(--text-dim)', border: top ? '1px solid rgba(0,200,150,0.2)' : '1px solid var(--border)' }}>
+                {top ? 'ALIGNED' : 'CHECKING'}
+              </span>
             </div>
-            <div className="text-sm font-extrabold text-emerald-400 mb-1">{macroBias}</div>
-            <p className="text-[11px] text-slate-400 leading-relaxed">Swing holding horizon: 18h – 48h. Invalidation stop below structural swing low.</p>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#e0b84a', marginBottom: 6 }}>
+              {macroBias.split('(')[0].trim()}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>{biasBrief()}</div>
           </div>
-          <div className="bg-[#0e131d]/90 border border-white/[0.08] p-4 rounded-2xl backdrop-blur-xl">
-            <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-              <span className="font-bold">2. Session Gate (H1)</span>
-              <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${killzoneInfo?.is_killzone ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' : 'bg-slate-700/40 text-slate-500 border-slate-600/20'}`}>{killzoneInfo?.utc_time || 'LIVE UTC'}</span>
+
+          {/* Step 2 */}
+          <div style={S.card}>
+            <div style={{ ...S.row, justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Step 2 — Session Timing</span>
+              <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, padding: '1px 6px', borderRadius: 3, background: killzoneInfo?.is_killzone ? 'rgba(56,189,248,0.1)' : 'rgba(255,255,255,0.04)', color: killzoneInfo?.is_killzone ? '#38bdf8' : 'var(--text-dim)', border: killzoneInfo?.is_killzone ? '1px solid rgba(56,189,248,0.2)' : '1px solid var(--border)' }}>
+                {killzoneInfo?.utc_time || 'LIVE'}
+              </span>
             </div>
-            <div className="text-sm font-extrabold text-cyan-300 mb-1">{killzoneInfo?.session_name || 'London Killzone (Peak Volume)'}</div>
-            <p className="text-[11px] text-slate-400 leading-relaxed">{killzoneInfo?.trading_allowed ? 'High institutional liquidity — execution permitted.' : 'Outside killzone — signals queue, no auto-execution.'}</p>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#38bdf8', marginBottom: 6 }}>
+              {sessionPlain().split('—')[0].trim()}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+              {killzoneInfo?.trading_allowed
+                ? 'This is a high-activity window — big banks are executing orders. Good time to trade.'
+                : 'Low-activity window right now. Bot will wait for a better time before executing.'}
+            </div>
           </div>
-          <div className="bg-[#0e131d]/90 border border-white/[0.08] p-4 rounded-2xl backdrop-blur-xl">
-            <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-              <span className="font-bold">3. ADR Headroom (M15/M30)</span>
-              <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${(adrInfo?.adr_used_pct || 45) > 80 ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>{adrInfo?.adr_used_pct || 45}% USED</span>
+
+          {/* Step 3 */}
+          <div style={S.card}>
+            <div style={{ ...S.row, justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Step 3 — Daily Range</span>
+              <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, padding: '1px 6px', borderRadius: 3, background: isExhausted ? 'rgba(232,68,90,0.1)' : 'rgba(245,158,11,0.1)', color: isExhausted ? '#e8445a' : '#f59e0b', border: isExhausted ? '1px solid rgba(232,68,90,0.2)' : '1px solid rgba(245,158,11,0.2)' }}>
+                {adrPct}% USED
+              </span>
             </div>
-            <div className="w-full bg-slate-800 rounded-full h-1.5 mb-2 overflow-hidden">
-              <div className={`h-full rounded-full transition-all ${(adrInfo?.adr_used_pct || 45) > 80 ? 'bg-rose-500' : 'bg-gradient-to-r from-emerald-500 to-amber-500'}`} style={{ width: `${Math.min(adrInfo?.adr_used_pct || 45, 100)}%` }} />
+            <div style={{ ...S.row, gap: 6, marginBottom: 8 }}>
+              <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${Math.min(adrPct,100)}%`, borderRadius: 2, background: isExhausted ? '#e8445a' : 'linear-gradient(90deg,#c99a12,#e0b84a)', transition: 'width .4s' }}/>
+              </div>
             </div>
-            <p className="text-[11px] text-slate-400 leading-relaxed">{adrInfo?.warning || 'Normal Daily Range (Clean expansion headroom)'}</p>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>{adrPlain()}</div>
           </div>
         </div>
+
+        {/* Forming setups */}
         {formingSetups.length > 0 && (
-          <div className="bg-[#0e131d]/80 border border-amber-500/20 rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider">Setups Forming ({formingSetups.length})</span>
-              <span className="text-[10px] text-slate-500">— not yet entry confirmed</span>
+          <div style={{ ...S.card, marginTop: 10, borderColor: 'rgba(245,158,11,0.15)' }}>
+            <div style={{ ...S.row, gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#f59e0b', letterSpacing: '0.07em', textTransform: 'uppercase' }}>Setups forming ({formingSetups.length})</span>
+              <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>— not ready to trade yet</span>
             </div>
-            <div className="space-y-2">
-              {formingSetups.slice(0, 3).map((sig, i) => (
-                <div key={sig.id || i} className="flex items-center justify-between text-xs p-2 rounded-lg bg-[#080b11]/60 border border-white/[0.04]">
-                  <div className="flex items-center gap-2">
-                    <span className={`font-black px-2 py-0.5 rounded text-[10px] ${sig.direction.includes('BUY') ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>{sig.direction}</span>
-                    <span className="text-slate-300 font-mono">{sig.symbol}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {formingSetups.slice(0,3).map((s,i) => (
+                <div key={s.id||i} style={{ ...S.row, justifyContent: 'space-between', fontSize: 11, padding: '7px 10px', borderRadius: 8, background: 'rgba(2,3,5,0.5)', border: '1px solid var(--border)' }}>
+                  <div style={{ ...S.row, gap: 6 }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 3, background: s.direction.includes('BUY') ? 'rgba(0,200,150,0.1)' : 'rgba(232,68,90,0.1)', color: s.direction.includes('BUY') ? '#00c896' : '#e8445a', border: s.direction.includes('BUY') ? '1px solid rgba(0,200,150,0.2)' : '1px solid rgba(232,68,90,0.2)', fontFamily: 'var(--font-mono)' }}>
+                      {s.direction.includes('BUY') ? 'BUY' : 'SELL'}
+                    </span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-secondary)' }}>{s.symbol}</span>
                   </div>
-                  <span className="text-slate-500 truncate max-w-[180px]">{sig.setup_summary?.slice(0, 40) || 'Watching for confirmation…'}</span>
+                  <span style={{ color: 'var(--text-dim)', fontSize: 10 }}>{s.setup_summary?.slice(0,45) || 'Watching for confirmation...'}</span>
                 </div>
               ))}
             </div>
@@ -187,28 +354,36 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
         )}
       </div>
 
-      {/* Live Profit Simulator */}
-      <div className="bg-[#0e131d]/90 border border-white/[0.08] rounded-3xl p-5 sm:p-6 backdrop-blur-xl">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold text-lg">💰</div>
+      {/* ── Profit calculator ───────────────────── */}
+      <div style={{ ...S.card }}>
+        <div style={{ ...S.row, gap: 10, marginBottom: 14 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 9, background: 'rgba(0,200,150,0.1)', border: '1px solid rgba(0,200,150,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00c896" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          </div>
           <div>
-            <h3 className="text-sm sm:text-base font-black text-slate-100">Live Profit &amp; Risk Simulator</h3>
-            <p className="text-xs text-slate-400">Calculate exact dollar return with fixed lot sizing.</p>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Profit Calculator</div>
+            <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>See how much you'd make per trade before placing it.</div>
           </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-[#080b11] p-4 rounded-2xl border border-white/[0.05]">
-            <div className="flex justify-between items-center text-xs mb-2"><span className="text-slate-400 font-semibold">Target Move (Pips)</span><span className="font-mono font-extrabold text-amber-300">{calcPips} Pips</span></div>
-            <input type="range" min="10" max="150" step="5" value={calcPips} onChange={(e) => setCalcPips(Number(e.target.value))} className="w-full accent-amber-400 cursor-pointer" />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+          <div style={{ ...S.card, padding: 12 }}>
+            <div style={{ ...S.row, justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-dim)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Target (pips)</span>
+              <Mono size={12} color="#e0b84a">{calcPips}</Mono>
+            </div>
+            <input type="range" min={10} max={150} step={5} value={calcPips} onChange={e => setCalcPips(+e.target.value)} style={{ width: '100%' }}/>
           </div>
-          <div className="bg-[#080b11] p-4 rounded-2xl border border-white/[0.05]">
-            <div className="flex justify-between items-center text-xs mb-2"><span className="text-slate-400 font-semibold">Lot Size</span><span className="font-mono font-extrabold text-emerald-400">{calcLots.toFixed(2)} Lot</span></div>
-            <input type="range" min={0.01} max={0.10} step={0.01} value={calcLots} onChange={(e) => setCalcLots(Number(e.target.value))} className="w-full accent-emerald-400 cursor-pointer" />
+          <div style={{ ...S.card, padding: 12 }}>
+            <div style={{ ...S.row, justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-dim)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Lot size</span>
+              <Mono size={12} color="#00c896">{calcLots.toFixed(2)}</Mono>
+            </div>
+            <input type="range" min={0.01} max={0.10} step={0.01} value={calcLots} onChange={e => setCalcLots(+e.target.value)} className="range-long" style={{ width: '100%' }}/>
           </div>
-          <div className="bg-gradient-to-br from-[#0e1f18] to-[#08140f] p-4 rounded-2xl border border-emerald-500/30 flex flex-col justify-center">
-            <div className="text-[11px] text-emerald-300 font-semibold uppercase">Projected Profit</div>
-            <div className="text-xl sm:text-2xl font-mono font-black text-emerald-400">+${estimatedProfitDollars.toFixed(2)} USD</div>
-            <div className="text-[10px] text-slate-400 mt-0.5">at {calcLots.toFixed(2)} lot · {calcPips} pips</div>
+          <div style={{ background: 'rgba(0,200,150,0.07)', border: '1px solid rgba(0,200,150,0.18)', borderRadius: 12, padding: 12, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: '#00c896', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 4 }}>You'd profit</div>
+            <Mono size={22} color="#00c896">+${profit$.toFixed(2)}</Mono>
+            <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 3 }}>{calcLots.toFixed(2)} lot · {calcPips} pips</div>
           </div>
         </div>
       </div>
