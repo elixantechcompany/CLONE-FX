@@ -17,14 +17,19 @@ jobs:
           APP_URL: ${{ secrets.VERCEL_APP_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          # ── Guard: skip gracefully if Vercel hasn't been deployed yet ──
           if [ -z "$APP_URL" ]; then
-            echo "::error::VERCEL_APP_URL secret is not set in GitHub repository secrets."
-            exit 1
+            echo "⚠️  VERCEL_APP_URL secret not set yet — skipping scan."
+            echo "   Add it at: GitHub → Settings → Secrets → Actions → New secret"
+            echo "   Name: VERCEL_APP_URL   Value: your-app.vercel.app (no https://)"
+            exit 0
           fi
 
-          echo "Triggering confluence scan at: https://${APP_URL}/api/scan"
-          
-          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "https://${APP_URL}/api/scan" \
+          echo "🔍 Triggering confluence scan at: https://${APP_URL}/api/scan"
+
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
+            --max-time 30 \
+            -X POST "https://${APP_URL}/api/scan" \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             -H "Content-Type: application/json")
 
@@ -32,11 +37,11 @@ jobs:
           HTTP_STATUS=$(echo "$RESPONSE" | tail -n1 | cut -d':' -f2)
 
           echo "Response Body: $HTTP_BODY"
-          echo "HTTP Status: $HTTP_STATUS"
+          echo "HTTP Status:   $HTTP_STATUS"
 
           if [ "$HTTP_STATUS" -ne 200 ]; then
-            echo "::error::Scan endpoint returned HTTP $HTTP_STATUS"
+            echo "⚠️  Scan endpoint returned HTTP $HTTP_STATUS — check Vercel logs."
             exit 1
           fi
-          
-          echo "Market scan completed successfully."
+
+          echo "✅ Market scan completed successfully."
