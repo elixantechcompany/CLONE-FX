@@ -1,0 +1,26 @@
+# Python Trading Engine Requirements
+# Optimized for AWS t2.micro Windows instance (1GB RAM)
+
+# Core dependencies
+MetaTrader5>=5.0.45
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Supabase integration
+supabase>=2.0.0
+httpx>=0.24.0
+
+# Data analysis
+pandas-ta>=0.3.14b0
+
+# Encryption
+cryptography>=41.0.0
+
+# Logging and monitoring
+python-dotenv>=1.0.0
+
+# Async support
+asyncio>=3.4.3
+
+# Time handling
+pytz>=2023.3

@@ -188,6 +188,14 @@ export interface DashboardApiResponse {
     primary_switch?: string;
     algo_trading_active?: boolean;
   };
+  system_status?: {
+    ea_running?: boolean;
+    mt5_connected?: boolean;
+    cloud_synced?: boolean;
+    last_scan_utc?: string;
+    signals_today?: number;
+    daily_cap?: number;
+  };
 }
 
 export type MT5AccountType = 'REAL' | 'DEMO' | string;

@@ -26,6 +26,9 @@ export default function Home() {
   const [eaRunning, setEaRunning] = useState<boolean>(true);
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [isLaunchingTerminal, setIsLaunchingTerminal] = useState<boolean>(false);
+  const [isOnline, setIsOnline] = useState<boolean>(false);   // true only when MT5 daemon is live
+  const [signalsToday, setSignalsToday] = useState<number>(0);
+  const [dailyCap, setDailyCap] = useState<number>(3);
 
   // Live Data State
   const [activeSignals, setActiveSignals] = useState<ConfluenceSignal[]>([]);
@@ -105,6 +108,16 @@ export default function Home() {
         if (data.master_switch) {
           setEaRunning(!!data.master_switch.algo_trading_active);
         }
+        // ── MT5 connection & trade-count status ──
+        if (data.system_status) {
+          setIsOnline(!!data.system_status.mt5_connected);
+          if (typeof data.system_status.signals_today === 'number') {
+            setSignalsToday(data.system_status.signals_today);
+          }
+          if (typeof data.system_status.daily_cap === 'number') {
+            setDailyCap(data.system_status.daily_cap);
+          }
+        }
         if (data.accounts && data.accounts.length > 0) {
           setAccounts(data.accounts);
         }
@@ -126,9 +139,13 @@ export default function Home() {
         if ((data as any).adr) {
           setAdrInfo((data as any).adr);
         }
+      } else {
+        // API responded but daemon is unreachable
+        setIsOnline(false);
       }
     } catch (e) {
-      // Local daemon offline fallback - scan via web market data
+      // Local daemon offline — mark disconnected
+      setIsOnline(false);
     }
   }, []);
 
@@ -318,7 +335,7 @@ export default function Home() {
         balance={primaryAccount?.balance || 36.58}
         equity={primaryAccount?.equity || 36.65}
         accountName={primaryAccount?.name || 'GOLD CLONE'}
-        isOnline={true}
+        isOnline={isOnline}
       />
 
       {/* Main Content Area */}
@@ -350,6 +367,10 @@ export default function Home() {
             account={primaryAccount}
             onLaunchTerminal={handleLaunchTerminal}
             isLaunchingTerminal={isLaunchingTerminal}
+            isOnline={isOnline}
+            signalsToday={signalsToday}
+            dailyCap={dailyCap}
+            onDailyCapChange={setDailyCap}
           />
         )}
 

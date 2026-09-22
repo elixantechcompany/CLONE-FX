@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState } from 'react';
 import { FleetAccount } from '@/lib/types';
@@ -9,6 +9,14 @@ interface EACommandCenterProps {
   account: FleetAccount | null;
   onLaunchTerminal: () => Promise<boolean>;
   isLaunchingTerminal: boolean;
+  /** True when the Python daemon has a live MT5 connection */
+  isOnline: boolean;
+  /** How many auto-trades have been placed today (from dashboard) */
+  signalsToday: number;
+  /** The current daily cap setting */
+  dailyCap: number;
+  /** Called when the user changes the daily cap in the UI */
+  onDailyCapChange: (n: number) => void;
 }
 
 export const EACommandCenter: React.FC<EACommandCenterProps> = ({
@@ -17,12 +25,14 @@ export const EACommandCenter: React.FC<EACommandCenterProps> = ({
   account,
   onLaunchTerminal,
   isLaunchingTerminal,
+  isOnline,
+  signalsToday,
+  dailyCap,
+  onDailyCapChange,
 }) => {
   const [terminalFeedback, setTerminalFeedback] = useState<string | null>(null);
   const [showArmConfirm, setShowArmConfirm] = useState(false);
   const [minScore, setMinScore] = useState<3 | 2>(3); // 3/3 only by default
-  const [maxSignalsPerDay, setMaxSignalsPerDay] = useState(3);
-  const [signalsToday, setSignalsToday] = useState(0); // pulled from props in production
 
   const handleLaunchWithFeedback = async () => {
     setTerminalFeedback('Locating MT5 terminal executable and initializing connector...');
@@ -44,8 +54,8 @@ export const EACommandCenter: React.FC<EACommandCenterProps> = ({
     onToggleEA();
   };
 
-  const cappedToday = Math.min(signalsToday, maxSignalsPerDay);
-  const isCapReached = signalsToday >= maxSignalsPerDay;
+  const cappedToday = Math.min(signalsToday, dailyCap);
+  const isCapReached = signalsToday >= dailyCap;
 
   return (
     <div className="flex flex-col gap-5 pb-20 lg:pb-6">
@@ -80,13 +90,22 @@ export const EACommandCenter: React.FC<EACommandCenterProps> = ({
             <div className={`flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-2xl border text-2xl sm:text-3xl shrink-0 ${eaRunning ? 'bg-emerald-500/20 border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.3)] animate-pulse' : 'bg-rose-500/20 border-rose-500/50 shadow-[0_0_20px_rgba(244,63,94,0.3)]'}`}>
               {eaRunning ? '⚡' : '🛑'}
             </div>
-            <div>
+          <div>
               <div className="flex items-center gap-2 mb-1">
                 <h2 className="text-xl sm:text-2xl font-black text-slate-100">{eaRunning ? 'ENGINE ARMED' : 'ENGINE STOPPED'}</h2>
                 <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full ${eaRunning ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'}`}>{eaRunning ? 'ALGO ACTIVE' : 'STANDBY'}</span>
+                {/* MT5 connection badge */}
+                <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 ${
+                  isOnline
+                    ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
+                    : 'bg-slate-700/40 text-slate-500 border border-slate-600/40'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full inline-block ${isOnline ? 'bg-cyan-400 shadow-[0_0_4px_#22d3ee]' : 'bg-slate-600'}`} />
+                  {isOnline ? 'MT5 LIVE' : 'MT5 OFFLINE'}
+                </span>
               </div>
               <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
-                {eaRunning ? `Auto-executing ${minScore}/3+ confluence setups. Daily cap: ${signalsToday}/${maxSignalsPerDay} signals used.` : 'Automated trade execution paused. Market data and charts remain live in observation mode.'}
+                {eaRunning ? `Auto-executing ${minScore}/3+ confluence setups. Daily cap: ${signalsToday}/${dailyCap} signals used.` : 'Automated trade execution paused. Market data and charts remain live in observation mode.'}
               </p>
             </div>
           </div>
@@ -145,19 +164,20 @@ export const EACommandCenter: React.FC<EACommandCenterProps> = ({
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs uppercase font-bold text-slate-400">Daily Signal Cap</span>
             <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isCapReached ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'}`}>
-              {isCapReached ? 'CAP REACHED' : `${cappedToday}/${maxSignalsPerDay} TODAY`}
+              {isCapReached ? 'CAP REACHED' : `${cappedToday}/${dailyCap} TODAY`}
             </span>
           </div>
-          <div className="text-base font-extrabold text-cyan-300 mb-3">Max {maxSignalsPerDay} auto-trades/day</div>
+          <div className="text-base font-extrabold text-cyan-300 mb-3">Max {dailyCap} auto-trades/day</div>
           {/* Progress bar */}
           <div className="w-full bg-slate-800 rounded-full h-2 mb-3 overflow-hidden">
-            <div className={`h-full rounded-full transition-all ${isCapReached ? 'bg-rose-500' : 'bg-gradient-to-r from-cyan-500 to-emerald-500'}`} style={{ width: `${Math.min((signalsToday / maxSignalsPerDay) * 100, 100)}%` }} />
+            <div className={`h-full rounded-full transition-all ${isCapReached ? 'bg-rose-500' : 'bg-gradient-to-r from-cyan-500 to-emerald-500'}`} style={{ width: `${Math.min((signalsToday / dailyCap) * 100, 100)}%` }} />
           </div>
           <div className="flex gap-2">
             {[1, 2, 3, 5].map((n) => (
-              <button key={n} onClick={() => setMaxSignalsPerDay(n)} className={`flex-1 py-2 rounded-xl text-xs font-black transition-all border ${maxSignalsPerDay === n ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' : 'bg-white/[0.03] text-slate-400 border-white/[0.05] hover:text-slate-200'}`}>{n}</button>
+              <button key={n} onClick={() => onDailyCapChange(n)} className={`flex-1 py-2 rounded-xl text-xs font-black transition-all border ${dailyCap === n ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' : 'bg-white/[0.03] text-slate-400 border-white/[0.05] hover:text-slate-200'}`}>{n}</button>
             ))}
           </div>
+          <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">Count resets at midnight UTC. Live from Python daemon.</p>
         </div>
       </div>
 

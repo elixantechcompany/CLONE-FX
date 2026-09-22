@@ -86,28 +86,48 @@ export async function GET() {
       try {
         const cloudSignals = await getSignals();
         if (cloudSignals && cloudSignals.length > 0) {
+          // getSignals() already returns camelCase ConfluenceSignal objects.
+          // Map them to the shape SignalsView expects (entryPrice, takeProfit1, takeProfit2…)
+          // and keep them consistent by setting any missing TP2 to a 1.5× extension.
           const mapped = cloudSignals.map((s) => ({
             id: s.id,
             symbol: s.symbol,
             direction: s.direction,
-            grade: (s as any).confluenceScore === '3/3' ? 'A+ PERFECT SETUP' : 'GRADE A',
-            conviction_score: s.scoreNumeric || 85,
-            entry_price: s.entryPrice,
-            stop_loss: s.stopLoss,
-            tp1: s.takeProfit1,
-            tp2: s.takeProfit2,
-            risk_reward: s.riskReward || 2.0,
-            sl_distance: s.slDistance || Math.abs(s.entryPrice - s.stopLoss),
-            tp_distance: s.tpDistance || Math.abs(s.takeProfit1 - s.entryPrice),
-            timeframe: 'D1/H4/H1',
-            status: s.status || 'ACTIVE',
-            invalidation_level: s.stopLoss,
+            // camelCase price fields (REQUIRED by SignalsView.tsx)
+            entryPrice: Number(s.entryPrice) || 0,
+            stopLoss: Number(s.stopLoss) || 0,
+            takeProfit1: Number(s.takeProfit1) || 0,
+            takeProfit2: s.takeProfit2
+              ? Number(s.takeProfit2)
+              : s.takeProfit1
+              ? Number(s.takeProfit1) + Math.abs(Number(s.takeProfit1) - Number(s.entryPrice))
+              : undefined,
+            riskReward: Number(s.riskReward) || 2.0,
+            slDistance: Number(s.slDistance) || Math.abs(Number(s.entryPrice) - Number(s.stopLoss)),
+            tpDistance: Number(s.tpDistance) || Math.abs(Number(s.takeProfit1) - Number(s.entryPrice)),
+            confluenceScore: (s as any).confluenceScore || '3/3',
+            scoreNumeric: (s as any).scoreNumeric ?? 3,
             confluences: s.confluences || [],
-            setup_summary: s.outcomeNotes || `[${s.direction} SIGNAL] Entry: ${s.entryPrice.toFixed(2)} | SL: ${s.stopLoss.toFixed(2)} | TP1: ${s.takeProfit1.toFixed(2)}`,
-            formed_time: new Date(s.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' UTC',
+            status: s.status || 'ACTIVE',
+            outcomeNotes: s.outcomeNotes || '',
+            setup_summary:
+              s.outcomeNotes ||
+              `[${s.direction} SIGNAL] Entry: ${Number(s.entryPrice).toFixed(2)} | SL: ${Number(s.stopLoss).toFixed(2)} | TP1: ${Number(s.takeProfit1).toFixed(2)}`,
+            formed_time:
+              new Date(s.createdAt || Date.now()).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              }) + ' UTC',
+            createdAt: s.createdAt,
             timestamp: Math.floor(new Date(s.createdAt || Date.now()).getTime() / 1000),
-            order_type: `${s.direction} MARKET (or Limit on Retest)`,
-            limit_price: s.limitPrice || s.entryPrice,
+            orderType: `${s.direction} MARKET (or Limit on Retest)` as any,
+            limitPrice: (s as any).limitPrice || Number(s.entryPrice),
+            // Legacy snake_case aliases kept for any server-only consumers
+            grade: (s as any).confluenceScore === '3/3' ? 'A+ PERFECT SETUP' : 'GRADE A',
+            entry_price: Number(s.entryPrice) || 0,
+            stop_loss: Number(s.stopLoss) || 0,
+            tp1: Number(s.takeProfit1) || 0,
+            tp2: s.takeProfit2 ? Number(s.takeProfit2) : undefined,
           }));
           data.perfect_setups = mapped;
           if (!data.signals_history || data.signals_history.length === 0) {
@@ -117,6 +137,29 @@ export async function GET() {
       } catch (e) {
         // Continue with data
       }
+    }
+
+    // Normalise any perfect_setups that came from data.json (snake_case from Python)
+    // so they always have the camelCase fields SignalsView needs.
+    if (data.perfect_setups && data.perfect_setups.length > 0) {
+      data.perfect_setups = data.perfect_setups.map((s: any) => ({
+        ...s,
+        // Promote snake_case → camelCase if not already present
+        entryPrice:   s.entryPrice   ?? s.entry_price   ?? 0,
+        stopLoss:     s.stopLoss     ?? s.stop_loss      ?? 0,
+        takeProfit1:  s.takeProfit1  ?? s.tp1            ?? 0,
+        takeProfit2:  s.takeProfit2  ?? s.tp2
+          ?? (s.tp1 ? Number(s.tp1) + Math.abs(Number(s.tp1) - Number(s.entry_price ?? 0)) : undefined),
+        riskReward:   s.riskReward   ?? s.risk_reward    ?? 2.0,
+        slDistance:   s.slDistance   ?? s.sl_distance    ?? 0,
+        tpDistance:   s.tpDistance   ?? s.tp_distance    ?? 0,
+        confluenceScore: s.confluenceScore ?? s.grade ?? '3/3',
+        scoreNumeric:    s.scoreNumeric    ?? (s.conviction_score ? Math.round(s.conviction_score / 33) : 3),
+        confluences:  s.confluences  ?? [],
+        status:       s.status       ?? 'ACTIVE',
+        symbol:       s.symbol       ?? 'XAUUSD',
+        direction:    s.direction    ?? 'BUY',
+      }));
     }
 
     return NextResponse.json(data);
