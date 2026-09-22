@@ -60,7 +60,7 @@ class RiskManager:
         self.zone_config = config.get("zone_management", {})
         self.symbols_cfg = config.get("symbols", {})
 
-        if self.account_type == "PERSONAL":
+        if self.is_personal:
             # Personal Micro Profile
             default_size = configured_balance if configured_balance > 0 else float(self.personal_cfg.get("initial_account_size_dollars", 20.0))
             self.initial_account_size = default_size
@@ -115,7 +115,7 @@ class RiskManager:
         # High-Water Mark Giveback Protection
         hwm_cfg = self.circuit_config.get("high_water_giveback_protection", {})
         self.hwm_protection_enabled = hwm_cfg.get("enabled", True)
-        self.hwm_arm_profit = float(hwm_cfg.get("min_profit_to_arm_dollars", 8.0 if self.account_type == "BRIGHTFUNDED" else 1.50))
+        self.hwm_arm_profit = float(hwm_cfg.get("min_profit_to_arm_dollars", 1.50 if self.is_personal else 8.0))
         self.hwm_max_giveback_pct = float(hwm_cfg.get("max_giveback_pct_of_peak", 25.0))
 
         # Daily baseline and state
@@ -178,7 +178,7 @@ class RiskManager:
 
     @property
     def is_personal(self) -> bool:
-        return self.account_type == "PERSONAL"
+        return self.account_type in ("PERSONAL", "REAL", "CENT_USC", "STANDARD_USD", "DEMO")
 
 
     def _load_lifetime_hwm(self):
@@ -281,8 +281,8 @@ class RiskManager:
         self.exit_reason_stats[clean_reason]["profit"] += profit
         self.exit_reason_stats[clean_reason]["captured_r"] += captured_r
 
-        loss_threshold = -0.25 if self.account_type == "BRIGHTFUNDED" else -0.15
-        win_threshold = 1.50 if self.account_type == "BRIGHTFUNDED" else 0.50
+        loss_threshold = -0.15 if self.is_personal else -0.25
+        win_threshold = 0.50 if self.is_personal else 1.50
 
         if profit < loss_threshold:
             # Loss recorded
@@ -409,7 +409,7 @@ class RiskManager:
         vol_step = float(spec.volume_step) if (spec and isinstance(getattr(spec, "volume_step", None), (int, float))) else 0.01
         contract_size = float(spec.contract_size) if (spec and isinstance(getattr(spec, "contract_size", None), (int, float)) and spec.contract_size > 0) else 100.0
 
-        if self.account_type == "PERSONAL":
+        if self.is_personal:
             # Personal $20 Profile
             if quality_score >= 80:
                 base_dollar_risk = 0.45
@@ -449,7 +449,7 @@ class RiskManager:
             max_risk_allowed_by_daily,
             max_risk_allowed_by_trailing
         )
-        target_dollar_risk = max(0.15 if self.account_type == "PERSONAL" else 1.50, target_dollar_risk)
+        target_dollar_risk = max(0.15 if self.is_personal else 1.50, target_dollar_risk)
 
         sl_distance = abs(entry_price - stop_loss_price)
         if sl_distance <= 0:
@@ -506,7 +506,7 @@ class RiskManager:
         trailing_drawdown = self.lifetime_high_water_equity - current_equity
 
         # 1. CHALLENGE / TARGET PASSED GOAL CHECK (Prop Firm Accounts Only)
-        if self.account_type == "BRIGHTFUNDED" and challenge_pnl >= self.challenge_target_profit:
+        if (not self.is_personal) and challenge_pnl >= self.challenge_target_profit:
             self.circuit_tripped = True
             self.trading_state = "CHALLENGE_PASSED"
             self.trip_reason = (
@@ -722,7 +722,7 @@ class RiskManager:
                 failures.append(f"Check 16 Fail: Current spread {spec.spread} exceeds limit {max_spread}")
 
         # 17. Free Margin check
-        min_margin = 2.0 if self.account_type == "PERSONAL" else 10.0
+        min_margin = 2.0 if self.is_personal else 10.0
         if free_margin < min_margin:
             failures.append(f"Check 17 Fail: Free margin ${free_margin:.2f} insufficient (< ${min_margin:.2f})")
 

@@ -16,6 +16,7 @@ import time
 import datetime
 from typing import Dict, List, Optional, Tuple, Any
 from dotenv import load_dotenv
+load_dotenv("config/.env")
 load_dotenv()
 import MetaTrader5 as mt5
 

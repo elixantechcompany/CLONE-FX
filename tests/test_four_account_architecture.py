@@ -98,6 +98,12 @@ class TestFourAccountArchitecture(unittest.TestCase):
         self.config["copy_engine"]["enabled"] = True
         self.config["copy_engine"]["master_account_id"] = "account_c"
         self.config["copy_engine"]["follower_account_id"] = "account_d"
+        self.config["accounts"]["account_list"] = [
+            {"id": "account_a", "name": "Account A", "type": "BRIGHTFUNDED", "balance": 1000.0, "mode": "INDEPENDENT"},
+            {"id": "account_b", "name": "Account B", "type": "BRIGHTFUNDED", "balance": 1000.0, "mode": "INDEPENDENT"},
+            {"id": "account_c", "name": "Account C", "type": "PERSONAL", "balance": 20.0, "mode": "COPY_MASTER", "copy_enabled": True},
+            {"id": "account_d", "name": "Account D", "type": "PERSONAL", "balance": 20.0, "mode": "COPY_FOLLOWER", "copy_enabled": True, "copy_source": "account_c"},
+        ]
 
         self.account_manager = MultiAccountManager(self.config)
 

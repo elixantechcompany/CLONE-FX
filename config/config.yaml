@@ -131,7 +131,7 @@ twister_strategy:
   magic_number: 2001
   mode: MODE_1
   timeframe: M5
-  min_quality_score: 80
+  min_quality_score: 70
   fast_ema: 9
   mid_ema: 21
   slow_ema: 50
@@ -172,8 +172,10 @@ m1_scalper:
   trend_slope_bars: 3
   magic_number: 1001
   timeframes:
+  - M1
   - M5
-  min_quality_score: 80
+  - M15
+  min_quality_score: 70
   max_concurrent_scalp: 1
   fast_ema: 7
   slow_ema: 16

@@ -43,10 +43,68 @@ class DashboardExporter:
         self.account_manager = AccountManager()
         self.ea_engine = EAExecutionEngine(config)
         self.master_ea_enabled = True
+        self.synced_setup_ids: set = set()
 
     def set_master_ea(self, enabled: bool):
         self.master_ea_enabled = bool(enabled)
         logger.info(f"Master EA execution set to: {self.master_ea_enabled}")
+
+    def sync_signal_to_supabase(self, setup: Dict[str, Any]):
+        """Persists detected setup directly to Supabase signals table for instant app/cloud sync."""
+        setup_id = setup.get("id")
+        if not setup_id or setup_id in self.synced_setup_ids:
+            return
+
+        try:
+            import urllib.request
+            url = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or "https://xeckbeavsvyoporldjzm.supabase.co"
+            key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY") or os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+            if not key:
+                return
+
+            sym = setup.get("symbol", "XAUUSD").replace("m", "").replace("_i", "").replace("z", "").upper()
+            direction = "LONG" if setup.get("direction", "BUY").upper() in ("BUY", "LONG") else "SHORT"
+            entry_p = float(setup.get("entry_price", 0.0))
+            sl_p = float(setup.get("stop_loss", 0.0))
+            tp1_p = float(setup.get("tp1", 0.0))
+            tp2_p = float(setup.get("tp2", 0.0)) if setup.get("tp2") else None
+            score = int(setup.get("conviction_score", 85))
+
+            rest_url = f"{url}/rest/v1/signals"
+            payload = json.dumps({
+                "symbol": sym,
+                "direction": direction,
+                "entry_price": entry_p,
+                "stop_loss": sl_p,
+                "take_profit_1": tp1_p,
+                "take_profit_2": tp2_p,
+                "risk_reward": float(setup.get("risk_reward", 2.0)),
+                "sl_distance": float(setup.get("sl_distance", abs(entry_p - sl_p))),
+                "tp_distance": float(setup.get("tp_distance", abs(tp1_p - entry_p))),
+                "confluence_score": f"{score}/100",
+                "score_numeric": score,
+                "timeframe_stack": {"D1": "ALIGNED", "4H": "STRUCTURE_CONFIRMED", "1H": "TRIGGER"},
+                "confluences": setup.get("confluences", []),
+                "status": "ACTIVE",
+                "outcome_notes": setup.get("setup_summary", "Autonomous Market Structure Signal"),
+            }).encode("utf-8")
+
+            req = urllib.request.Request(
+                rest_url,
+                data=payload,
+                headers={
+                    "apikey": key,
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                    "Prefer": "resolution=merge-duplicates",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=4) as res:
+                self.synced_setup_ids.add(setup_id)
+                logger.info(f"[Dashboard] Synced signal {setup_id} ({sym} {direction}) to Supabase: status {res.status}")
+        except Exception as e:
+            logger.debug(f"[Dashboard] Supabase signal sync notice: {e}")
 
     def export_data(
         self,
@@ -190,9 +248,9 @@ class DashboardExporter:
                 clean_key = sym_key.upper()
                 structure_all[clean_key] = struct
 
-                # Only evaluate new live triggers if market is open
-                is_open = market_schedules.get(clean_key, {}).get("is_open", True)
-                if is_open:
+                # Evaluate market structure setups (active on weekdays & 24/7 crypto)
+                is_weekend_closed = "Weekend" in market_schedules.get(clean_key, {}).get("status_text", "")
+                if not is_weekend_closed:
                     cur_spread = 20
                     if mt5 is not None:
                         info = mt5.symbol_info(sym_val)
@@ -205,6 +263,10 @@ class DashboardExporter:
                     )
                     active_setups_all.extend(act_s)
                     forming_setups_all.extend(form_s)
+
+            # Sync confirmed and forming setups to Supabase
+            for setup in active_setups_all + forming_setups_all:
+                self.sync_signal_to_supabase(setup)
 
             # 4b. Autonomous EA Execution Engine (Executes on Magic #2001, isolates manual trades #0)
             if self.master_ea_enabled and active_setups_all:

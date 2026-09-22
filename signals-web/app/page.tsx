@@ -132,10 +132,44 @@ export default function Home() {
     }
   }, []);
 
+  // 1b. Fetch Cloud Signals from Supabase via /api/signals
+  const fetchCloudSignals = useCallback(async () => {
+    try {
+      const res = await fetch('/api/signals', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.signals && data.signals.length > 0) {
+          const symbolSignals = data.signals.filter((s: ConfluenceSignal) => s.symbol === selectedSymbol);
+          const toShow = symbolSignals.length > 0 ? symbolSignals : data.signals;
+          setActiveSignals((prev) => (prev.length > 0 ? prev : toShow));
+          if (toShow[0]?.htfConfluence?.dailyBias) {
+            setMacroBias(toShow[0].htfConfluence.dailyBias);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Could not fetch cloud signals:', e);
+    }
+  }, [selectedSymbol]);
+
   // 2. Scan Live Market Confluence (Vercel + Local Universal Fallback)
   const scanMarketData = useCallback(async () => {
     setIsScanning(true);
     try {
+      // Trigger server-side scan first
+      try {
+        const scanRes = await fetch('/api/scan', { method: 'POST', cache: 'no-store' });
+        if (scanRes.ok) {
+          const scanJson = await scanRes.json();
+          if (scanJson.results) {
+            const found = scanJson.results.find((r: any) => r.signalFound && r.signal);
+            if (found && found.signal) {
+              setActiveSignals([found.signal]);
+            }
+          }
+        }
+      } catch (e) {}
+
       const bundle = await fetchMarketDataBundle(selectedSymbol);
       if (bundle) {
         const h4Candles = bundle.timeframes['4h'];
@@ -151,12 +185,15 @@ export default function Home() {
           setMacroBias(signal.htfConfluence?.dailyBias || 'BULLISH EXPANSION');
         }
       }
+
+      await fetchDashboardData();
+      await fetchCloudSignals();
     } catch (err) {
       console.warn('Market scan warning:', err);
     } finally {
       setIsScanning(false);
     }
-  }, [selectedSymbol]);
+  }, [selectedSymbol, fetchDashboardData, fetchCloudSignals]);
 
   // 3. Fetch Journal Entries (Supabase + localStorage fallback)
   const fetchJournalEntries = useCallback(async () => {
@@ -183,15 +220,17 @@ export default function Home() {
 
   useEffect(() => {
     fetchDashboardData();
+    fetchCloudSignals();
     scanMarketData();
     fetchJournalEntries();
 
     const interval = setInterval(() => {
       fetchDashboardData();
-    }, 3000);
+      fetchCloudSignals();
+    }, 5000);
 
     return () => clearInterval(interval);
-  }, [fetchDashboardData, scanMarketData, fetchJournalEntries]);
+  }, [fetchDashboardData, fetchCloudSignals, scanMarketData, fetchJournalEntries]);
 
   // EA Toggle Handler
   const handleToggleEA = async () => {

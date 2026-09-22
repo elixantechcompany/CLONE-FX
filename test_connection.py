@@ -4,6 +4,8 @@ Verifies terminal connection, login credentials, and Gold symbol availability.
 """
 
 import sys
+import time
+import os
 import yaml
 from dotenv import load_dotenv
 
@@ -21,9 +23,22 @@ def test():
     with open("config/config.yaml", "r") as f:
         config = yaml.safe_load(f)
 
-    connector = MT5Connector()
+    import os
+    acc_login = os.getenv("ACCOUNT_D_LOGIN") or os.getenv("MT5_ACCOUNT_NUMBER")
+    acc_pass = os.getenv("ACCOUNT_D_PASSWORD") or os.getenv("MT5_PASSWORD")
+    acc_server = os.getenv("ACCOUNT_D_SERVER") or os.getenv("MT5_SERVER")
+    acc_path = os.getenv("ACCOUNT_D_MT5_PATH") or os.getenv("MT5_PATH")
+    connector = MT5Connector(account=acc_login, password=acc_pass, server=acc_server, path=acc_path, account_id="account_d")
     print("\n[1/3] Initializing connection to MT5 terminal...")
-    if not connector.initialize():
+    connected = False
+    for attempt in range(1, 4):
+        if connector.initialize():
+            connected = True
+            break
+        print(f"  Attempt {attempt}/3 waiting for MT5 terminal IPC...")
+        time.sleep(2)
+
+    if not connected:
         print("[FAIL] Could not connect to MT5 terminal.")
         print("Tip: Make sure your MetaTrader 5 application is OPEN on your desktop.")
         sys.exit(1)

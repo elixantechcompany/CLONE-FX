@@ -44,6 +44,13 @@ class TestMultiTerminalIsolation(unittest.TestCase):
         with open("config/config.yaml", "r") as f:
             self.config = yaml.safe_load(f)
 
+        self.config["accounts"]["account_list"] = [
+            {"id": "account_a", "name": "Account A", "type": "BRIGHTFUNDED", "balance": 1000.0, "mode": "INDEPENDENT"},
+            {"id": "account_b", "name": "Account B", "type": "BRIGHTFUNDED", "balance": 1000.0, "mode": "INDEPENDENT"},
+            {"id": "account_c", "name": "Account C", "type": "PERSONAL", "balance": 20.0, "mode": "COPY_MASTER", "copy_enabled": True},
+            {"id": "account_d", "name": "Account D", "type": "PERSONAL", "balance": 20.0, "mode": "COPY_FOLLOWER", "copy_enabled": True, "copy_source": "account_c"},
+        ]
+
     @patch("MetaTrader5.initialize", return_value=True)
     @patch("MetaTrader5.login", return_value=True)
     @patch("MetaTrader5.terminal_info")
